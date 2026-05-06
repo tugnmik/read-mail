@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Docs - Đọc Hòm Thư Outlook/Hotmail</title>
+    <meta name="description" content="Tài liệu API tích hợp hệ thống đọc mail Microsoft Graph API">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        .docs-container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .endpoint-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+        .endpoint-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 16px 24px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .method {
+            font-weight: 700;
+            font-size: 0.9rem;
+            padding: 6px 12px;
+            border-radius: 6px;
+            color: #0f1923;
+        }
+        .method.post { background: var(--accent); }
+        .method.get { background: var(--info); }
+        
+        .path {
+            font-family: 'Consolas', monospace;
+            font-size: 1.1rem;
+            color: var(--text-primary);
+        }
+        .desc {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            flex: 1;
+            text-align: right;
+        }
+        .endpoint-body {
+            padding: 24px;
+        }
+        .section-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
+            margin-top: 20px;
+        }
+        .section-title:first-child { margin-top: 0; }
+        
+        pre {
+            background: var(--bg-input);
+            padding: 16px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border-color);
+            overflow-x: auto;
+            color: #a5d6ff;
+            font-family: 'Consolas', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+        .comment { color: #8b949e; }
+        .string { color: #7ee787; }
+        .key { color: #79c0ff; }
+        .keyword { color: #ff7b72; }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header id="app-header">
+        <div class="header-inner">
+            <div class="logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="4" width="20" height="16" rx="2"/>
+                    <path d="M22 7L13.03 12.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+                </svg>
+                <h1>Đọc Hòm Thư</h1>
+            </div>
+            <div class="nav-links">
+                <a href="/" class="nav-link" style="color: var(--text-secondary); text-decoration: none; margin-right: 20px;">Đọc Mail</a>
+                <a href="/api-docs" class="nav-link active" style="color: var(--accent); font-weight: 600; text-decoration: none;">Tài Liệu API</a>
+            </div>
+        </div>
+    </header>
+
+    <main id="app-main">
+        <div class="docs-container">
+            <div style="margin-bottom: 32px;">
+                <h2 style="font-size: 2rem; margin-bottom: 8px;">Tài Liệu Tích Hợp API</h2>
+                <p style="color: var(--text-secondary);">Sử dụng các endpoint dưới đây để tích hợp công cụ đọc mail (Microsoft Graph API) vào hệ thống của bạn.</p>
+            </div>
+
+            <!-- Endpoint 1 -->
+            <div class="endpoint-card">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/read-mail-stream</span>
+                    <span class="desc">Đọc số lượng lớn tài khoản (NDJSON Streaming)</span>
+                </div>
+                <div class="endpoint-body">
+                    <p style="color: var(--text-secondary); margin-bottom: 16px;">Tối ưu cho việc đọc từ 50-100 accounts đồng thời. Trả về dữ liệu dạng luồng (stream), mỗi dòng là một JSON độc lập ngay khi có kết quả.</p>
+                    
+                    <div class="section-title">Request Body</div>
+                    <pre><span class="key">"accounts"</span>: [
+  {
+    <span class="key">"email"</span>: <span class="string">"test@hotmail.com"</span>,
+    <span class="key">"password"</span>: <span class="string">"pass"</span>, <span class="comment">// Optional</span>
+    <span class="key">"refresh_token"</span>: <span class="string">"M.C524_BAY..."</span>,
+    <span class="key">"client_id"</span>: <span class="string">"9e5f94bc-..."</span>
+  }
+]</pre>
+
+                    <div class="section-title">Response (application/x-ndjson)</div>
+                    <pre><span class="comment">// Dòng 1 stream về ngay lập tức khi account 1 xong</span>
+{<span class="key">"email"</span>: <span class="string">"test@hotmail.com"</span>, <span class="key">"status"</span>: <span class="string">"ok"</span>, <span class="key">"messages"</span>: [{<span class="key">"id"</span>: <span class="string">"..."</span>, <span class="key">"subject"</span>: <span class="string">"Verify code"</span>...}]}
+<span class="comment">// Dòng 2...</span>
+{<span class="key">"email"</span>: <span class="string">"error@hotmail.com"</span>, <span class="key">"status"</span>: <span class="string">"error"</span>, <span class="key">"error"</span>: <span class="string">"Token het han"</span>}</pre>
+                </div>
+            </div>
+
+            <!-- Endpoint 2 -->
+            <div class="endpoint-card">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/mail-all</span>
+                    <span class="desc">Chỉ định số lượng thư cần đọc của 1 tài khoản</span>
+                </div>
+                <div class="endpoint-body">
+                    <p style="color: var(--text-secondary); margin-bottom: 16px;">Lấy danh sách N thư mới nhất từ một tài khoản cụ thể.</p>
+                    
+                    <div class="section-title">Request Body</div>
+                    <pre>{
+  <span class="key">"refresh_token"</span>: <span class="string">"M.C524_BAY..."</span>,
+  <span class="key">"client_id"</span>: <span class="string">"9e5f94bc-..."</span>,
+  <span class="key">"limit"</span>: <span class="keyword">10</span> <span class="comment">// Số thư tối đa (Mặc định: 10)</span>
+}</pre>
+
+                    <div class="section-title">Response (application/json)</div>
+                    <pre>{
+  <span class="key">"messages"</span>: [
+    {
+      <span class="key">"id"</span>: <span class="string">"AQQkADAwATM3AD..."</span>,
+      <span class="key">"subject"</span>: <span class="string">"Welcome to Figma"</span>,
+      <span class="key">"from_name"</span>: <span class="string">"Figma"</span>,
+      <span class="key">"from_address"</span>: <span class="string">"support@figma.com"</span>,
+      <span class="key">"date"</span>: <span class="string">"2026-03-17T13:51:00Z"</span>,
+      <span class="key">"snippet"</span>: <span class="string">"You are now verified as a student..."</span>
+    }
+  ]
+}</pre>
+                </div>
+            </div>
+
+            <!-- Endpoint 3 -->
+            <div class="endpoint-card">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/mail-detail</span>
+                    <span class="desc">Lấy nội dung HTML chi tiết của 1 thư</span>
+                </div>
+                <div class="endpoint-body">
+                    <p style="color: var(--text-secondary); margin-bottom: 16px;">Sử dụng Message ID (được trả về ở các API trên) để lấy mã nguồn HTML nguyên bản của email để render / hiển thị.</p>
+                    
+                    <div class="section-title">Request Body</div>
+                    <pre>{
+  <span class="key">"refresh_token"</span>: <span class="string">"M.C524_BAY..."</span>,
+  <span class="key">"client_id"</span>: <span class="string">"9e5f94bc-..."</span>,
+  <span class="key">"message_id"</span>: <span class="string">"AQQkADAwATM3AD..."</span>
+}</pre>
+
+                    <div class="section-title">Response (application/json)</div>
+                    <pre>{
+  <span class="key">"id"</span>: <span class="string">"AQQkADAwATM3AD..."</span>,
+  <span class="key">"subject"</span>: <span class="string">"Welcome to Figma"</span>,
+  <span class="key">"from_name"</span>: <span class="string">"Figma"</span>,
+  <span class="key">"from_address"</span>: <span class="string">"support@figma.com"</span>,
+  <span class="key">"date"</span>: <span class="string">"2026-03-17T13:51:00Z"</span>,
+  <span class="key">"html_body"</span>: <span class="string">"&lt;html&gt;&lt;body&gt;...&lt;/body&gt;&lt;/html&gt;"</span>,
+  <span class="key">"content_type"</span>: <span class="string">"html"</span>
+}</pre>
+                </div>
+            </div>
+            
+        </div>
+    </main>
+</body>
+</html>

@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: read-mail
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /ping
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /root/.cache/ms-playwright

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Đọc Hòm Thư Outlook/Hotmail</title>
+    <meta name="description" content="Đọc mail Hotmail/Outlook qua Microsoft Graph API sử dụng OAuth2 refresh token">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header id="app-header">
+        <div class="header-inner">
+            <div class="logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="4" width="20" height="16" rx="2"/>
+                    <path d="M22 7L13.03 12.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+                </svg>
+                <h1>Đọc Hòm Thư</h1>
+            </div>
+            <div class="nav-links">
+                <a href="#" class="nav-link active" id="nav-mail" onclick="switchPage('mail'); return false;">Đọc Mail</a>
+                <a href="#" class="nav-link" id="nav-oauth2" onclick="switchPage('oauth2'); return false;">Get OAuth2</a>
+                <a href="/api-docs" class="nav-link">Tài Liệu API</a>
+            </div>
+        </div>
+    </header>
+
+    <main id="app-main">
+        <!-- ═══ Mail Page ════════════════════════════════════════════ -->
+        <div id="mail-page">
+            <!-- Input Section -->
+            <section class="input-section" id="input-section">
+                <div class="section-header">
+                    <h2>Nhập OAuth2</h2>
+                    <div class="input-controls">
+                        <div class="limit-group">
+                            <label for="mail-limit">Số thư tối đa:</label>
+                            <input type="number" id="mail-limit" min="1" max="100" value="10" class="limit-input">
+                        </div>
+                    </div>
+                </div>
+                <div class="textarea-wrapper">
+                    <textarea
+                        id="oauth2-input"
+                        placeholder="Nhập mỗi dòng: email|password|refresh_token|client_id&#10;&#10;Ví dụ:&#10;user@hotmail.com|password123|M.C524_BAY.0.U.-xxxxx|9e5f94bc-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                        spellcheck="false"
+                    ></textarea>
+                    <div class="textarea-footer">
+                        <span id="line-count">0 dòng</span>
+                        <button class="btn-clear" id="btn-clear" title="Xóa nội dung">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                            Xóa
+                        </button>
+                    </div>
+                </div>
+                <div class="action-bar">
+                    <div class="status-text" id="status-text"></div>
+                    <button class="btn-primary" id="btn-read" onclick="readMail()">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 13V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h9"/>
+                            <path d="M22 7L13.03 12.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+                            <path d="m16 19 2 2 4-4"/>
+                        </svg>
+                        Đọc hòm thư
+                    </button>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section class="results-section" id="results-section" style="display:none;">
+                <div class="results-header">
+                    <h2>Kết quả</h2>
+                    <span class="results-summary" id="results-summary"></span>
+                </div>
+                <div id="results-container"></div>
+            </section>
+        </div>
+
+        <!-- ═══ OAuth2 Page ══════════════════════════════════════════ -->
+        <div id="oauth2-page" style="display:none;">
+            <section class="input-section">
+                <div class="section-header">
+                    <h2>Get OAuth2 Token</h2>
+                    <span class="oauth2-limit-hint">Tối đa 10 tài khoản</span>
+                </div>
+                <div class="textarea-wrapper">
+                    <textarea
+                        id="oauth2-cred-input"
+                        placeholder="Nhập mỗi dòng: email|password (tối đa 10)&#10;&#10;Ví dụ:&#10;user@outlook.com|password123&#10;user2@hotmail.com|pass456"
+                        spellcheck="false"
+                    ></textarea>
+                    <div class="textarea-footer">
+                        <span id="oauth2-cred-line-count">0 dòng</span>
+                        <button class="btn-clear" id="btn-clear-oauth2" title="Xóa nội dung">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                            Xóa
+                        </button>
+                    </div>
+                </div>
+                <div class="action-bar">
+                    <div class="status-text" id="oauth2-status"></div>
+                    <button class="btn-oauth2" id="btn-get-oauth2" onclick="getOAuth2()">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                        </svg>
+                        Get OAuth2
+                    </button>
+                </div>
+            </section>
+            <div id="oauth2-results-container"></div>
+        </div>
+    </main>
+
+    <!-- Modal for email detail -->
+    <div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+        <div class="modal-content" id="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Chi tiết Email</h3>
+                <button class="modal-close" onclick="closeModalForce()" title="Đóng">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-meta" id="modal-meta"></div>
+                <iframe id="modal-iframe" sandbox="allow-same-origin" title="Email content"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="loading-spinner">
+            <div class="spinner"></div>
+            <p id="loading-text">Đang xử lý...</p>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
