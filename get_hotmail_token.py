@@ -45,70 +45,131 @@ def get_token_from_credentials(email: str, password: str) -> dict:
 
     auth_code = {"value": None}
 
+    def extract_code(url: str):
+        if "code=" in url:
+            p = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            return p.get("code", [None])[0]
+        return None
+
     def intercept_request(req):
-        if REDIRECT_URI in req.url and "code=" in req.url:
-            p = urllib.parse.parse_qs(urllib.parse.urlparse(req.url).query)
-            auth_code["value"] = p.get("code", [None])[0]
+        if REDIRECT_URI in req.url:
+            code = extract_code(req.url)
+            if code:
+                auth_code["value"] = code
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
         )
-        page    = browser.new_context().new_page()
+        page = browser.new_context().new_page()
         page.on("request", intercept_request)
 
-        page.goto(auth_url, timeout=30000)
-        page.wait_for_load_state("networkidle", timeout=15000)
-
-        # Fill email
-        page.fill('input[type="email"], input[name="loginfmt"], input[name="login"]',
-                  email, timeout=8000)
-        page.click('input[type="submit"], button[type="submit"], #idSIButton9',
-                   timeout=5000)
-        page.wait_for_load_state("networkidle", timeout=10000)
-
-        # Fill password
-        page.fill('input[type="password"], input[name="passwd"]',
-                  password, timeout=8000)
-        page.click('input[type="submit"], button[type="submit"], #idSIButton9',
-                   timeout=5000)
-
-        # Wait for redirect or next step
         try:
-            page.wait_for_url(f"{REDIRECT_URI}*", timeout=12000)
-        except Exception:
-            page.wait_for_load_state("networkidle", timeout=12000)
+            page.goto(auth_url, timeout=30000)
+            page.wait_for_load_state("networkidle", timeout=15000)
 
-        # Handle "Stay signed in?" (KMSI)
-        if "KmsiInterrupt" in page.url:
-            try:
-                page.click('#idBtn_Back', timeout=4000)  # "No"
-                page.wait_for_load_state("networkidle", timeout=10000)
-            except Exception:
-                pass
+            # Step 1: Fill email
+            page.fill('input[type="email"], input[name="loginfmt"], input[name="login"]',
+                      email, timeout=8000)
+            page.click('input[type="submit"], button[type="submit"], #idSIButton9',
+                       timeout=5000)
+            page.wait_for_load_state("networkidle", timeout=10000)
 
-        # Handle consent page
-        if "Consent/Update" in page.url:
-            try:
-                page.click('button:has-text("Accept")', timeout=5000)
+            # Step 2: Fill password
+            page.fill('input[type="password"], input[name="passwd"]',
+                      password, timeout=8000)
+            page.click('input[type="submit"], button[type="submit"], #idSIButton9',
+                       timeout=5000)
+
+            # Step 3: Poll loop - xử lý các trang trung gian
+            for _ in range(25):
+                if auth_code["value"]:
+                    break
+
                 try:
-                    page.wait_for_url(f"{REDIRECT_URI}*", timeout=12000)
+                    page.wait_for_load_state("networkidle", timeout=5000)
                 except Exception:
-                    page.wait_for_load_state("networkidle", timeout=10000)
-            except Exception:
-                pass
+                    pass
 
-        # Check final URL for auth code
+                url = page.url
+
+                # Đã có code trong URL
+                if REDIRECT_URI in url:
+                    code = extract_code(url)
+                    if code:
+                        auth_code["value"] = code
+                    break
+
+                # Lỗi rõ ràng từ Microsoft
+                if "error=" in url and REDIRECT_URI not in url:
+                    break
+
+                # KMSI "Stay signed in?" → click No
+                if "KmsiInterrupt" in url or "kmsi" in url.lower():
+                    try:
+                        page.click('#idBtn_Back', timeout=3000)
+                    except Exception:
+                        try:
+                            page.click('button:has-text("No")', timeout=3000)
+                        except Exception:
+                            pass
+                    continue
+
+                # Consent page → Accept
+                if "Consent" in url or "consent" in url:
+                    try:
+                        page.click('button:has-text("Accept")', timeout=5000)
+                    except Exception:
+                        pass
+                    continue
+
+                # "Action Required" / "Protect your account" / MFA setup → skip nếu có nút
+                try:
+                    skip_btn = page.locator(
+                        'button:has-text("Skip"), '
+                        'button:has-text("Not now"), '
+                        'a:has-text("Skip"), '
+                        'a:has-text("Not now"), '
+                        '#idBtn_Back'
+                    ).first
+                    if skip_btn.count() > 0:
+                        skip_btn.click(timeout=3000)
+                        continue
+                except Exception:
+                    pass
+
+                # "Suspicious activity" confirm → click Continue
+                try:
+                    cont_btn = page.locator(
+                        'button:has-text("Continue"), '
+                        'input[value="Continue"]'
+                    ).first
+                    if cont_btn.count() > 0:
+                        cont_btn.click(timeout=3000)
+                        continue
+                except Exception:
+                    pass
+
+                page.wait_for_timeout(1000)
+
+            # Kiểm tra final URL
+            if not auth_code["value"]:
+                code = extract_code(page.url)
+                if code:
+                    auth_code["value"] = code
+
+        except Exception as e:
+            browser.close()
+            return {"error": f"Browser error: {e}"}
+
         final_url = page.url
-        if not auth_code["value"] and "code=" in final_url:
-            p = urllib.parse.parse_qs(urllib.parse.urlparse(final_url).query)
-            auth_code["value"] = p.get("code", [None])[0]
-
         browser.close()
 
     if not auth_code["value"]:
-        return {"error": "No authorization code obtained. Check credentials or MFA."}
+        # Trả về URL cuối cùng để debug
+        short_url = final_url[:120] if final_url else "unknown"
+        return {"error": f"No authorization code obtained. Final page: {short_url}"}
 
     # Exchange auth code for tokens
     resp = requests.post(TOKEN_URL, data={
