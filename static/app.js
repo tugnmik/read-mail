@@ -14,6 +14,23 @@ let okCount = 0;
 let errCount = 0;
 let totalCount = 0;
 
+// Per-account in-flight lock: ngăn double-click spam token exchange
+const _accountInFlight = {};
+// Debounce: ngăn click btnRead nhiều lần liên tiếp
+let _lastReadAt = 0;
+const _READ_DEBOUNCE_MS = 1000;
+
+// Chuyển lỗi kỹ thuật thành thông báo tiếng Việt thân thiện
+function friendlyError(msg) {
+    if (!msg) return msg;
+    if (/50196|LoopDetected|cooldown|loop/i.test(msg)) {
+        const match = msg.match(/(\d+)s/);
+        const secs = match ? match[1] : "60";
+        return `⏳ Microsoft phát hiện quá nhiều yêu cầu liên tiếp. Vui lòng chờ ~${secs}s rồi thử lại.`;
+    }
+    return msg;
+}
+
 // ── DOM refs ───────────────────────────────────────────────────────
 const inputEl = document.getElementById("oauth2-input");
 const lineCountEl = document.getElementById("line-count");
@@ -88,11 +105,25 @@ function parseAccounts() {
 
 // ── Main: Đọc hòm thư (STREAMING) ─────────────────────────────────
 async function readMail() {
-    const accounts = parseAccounts();
+    // Debounce: tránh spam click
+    const now = Date.now();
+    if (now - _lastReadAt < _READ_DEBOUNCE_MS) return;
+    _lastReadAt = now;
+
+    let accounts = parseAccounts();
     if (accounts.length === 0) {
         alert("Chưa nhập dữ liệu hoặc sai format!");
         return;
     }
+
+    // Ưu tiên refresh_token mới nhất đã được rotate từ lần đọc trước
+    accounts = accounts.map((acc) => {
+        const stored = accountDataMap[acc.email];
+        if (stored && stored.refresh_token) {
+            return { ...acc, refresh_token: stored.refresh_token };
+        }
+        return acc;
+    });
 
     // Reset state
     okCount = 0;
@@ -303,6 +334,10 @@ async function loadMoreMails(email) {
     const accData = accountDataMap[email];
     if (!accData) return;
 
+    // In-flight guard: tránh gửi nhiều request token exchange song song
+    if (_accountInFlight[email]) return;
+    _accountInFlight[email] = true;
+
     const limit = parseInt(document.getElementById("mail-limit").value) || 10;
     const btnMore = document.getElementById(`btn-more-${sanitizeId(email)}`);
     const tbody = document.getElementById(`tbody-${sanitizeId(email)}`);
@@ -324,7 +359,9 @@ async function loadMoreMails(email) {
         const data = await resp.json();
 
         if (data.error) {
-            btnMore.textContent = `Lỗi: ${data.error}`;
+            btnMore.textContent = friendlyError(data.error);
+            btnMore.disabled = false;
+            _accountInFlight[email] = false;
             return;
         }
 
@@ -342,6 +379,9 @@ async function loadMoreMails(email) {
         btnMore.style.borderColor = "var(--accent)";
     } catch (err) {
         btnMore.textContent = `Lỗi: ${err.message}`;
+        btnMore.disabled = false;
+    } finally {
+        _accountInFlight[email] = false;
     }
 }
 
@@ -349,6 +389,10 @@ async function loadMoreMails(email) {
 async function showDetail(email, messageId) {
     const accData = accountDataMap[email];
     if (!accData) return;
+
+    // In-flight guard: tránh mở modal 2 lần cùng lúc
+    if (_accountInFlight[`detail_${email}_${messageId}`]) return;
+    _accountInFlight[`detail_${email}_${messageId}`] = true;
 
     modalOverlay.classList.add("active");
     modalTitle.textContent = "Đang tải...";
@@ -370,7 +414,8 @@ async function showDetail(email, messageId) {
 
         if (data.error) {
             modalTitle.textContent = "Lỗi";
-            modalIframe.srcdoc = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:red;">${escHtml(data.error)}</div>`;
+            modalIframe.srcdoc = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:red;">${escHtml(friendlyError(data.error))}</div>`;
+            _accountInFlight[`detail_${email}_${messageId}`] = false;
             return;
         }
 
@@ -392,6 +437,8 @@ async function showDetail(email, messageId) {
     } catch (err) {
         modalTitle.textContent = "Lỗi";
         modalIframe.srcdoc = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:red;">${escHtml(err.message)}</div>`;
+    } finally {
+        _accountInFlight[`detail_${email}_${messageId}`] = false;
     }
 }
 

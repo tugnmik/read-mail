@@ -7,24 +7,95 @@ token family and calls the matching mail API automatically.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+import threading
+import time
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 import requests
+from requests.adapters import HTTPAdapter, Retry
 
 TENANT_ID = "consumers"
 TOKEN_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
 GRAPH_BASE = "https://graph.microsoft.com/v1.0/me"
 OUTLOOK_BASE = "https://outlook.office.com/api/v2.0/me"
 
-_adapter = requests.adapters.HTTPAdapter(
+# Retry chỉ cho GET (mail list/detail), KHÔNG retry POST (token exchange)
+_retry_strategy = Retry(
+    total=1,
+    backoff_factor=0.3,
+    status_forcelist=[500, 502, 503, 504],
+    allowed_methods=["GET"],
+)
+_adapter = HTTPAdapter(
     pool_connections=50,
     pool_maxsize=100,
-    max_retries=1,
+    max_retries=_retry_strategy,
 )
 _session = requests.Session()
 _session.mount("https://", _adapter)
 _session.mount("http://", _adapter)
+
+# ── Token cache ───────────────────────────────────────────────────────────────
+# Key: (refresh_token_stripped, client_id_stripped)
+# Value: (token_info_dict, expire_at_float, canonical_refresh_token)
+# Access token sống ~3600s, reuse đến khi còn 120s.
+_TOKEN_CACHE_LOCK = threading.Lock()
+_token_cache: Dict[str, Any] = {}   # key → (TokenInfo, expire_at)
+_TOKEN_REUSE_BUFFER = 120            # giây trước khi hết hạn thì exchange lại
+
+# ── Global circuit breaker cho token endpoint ─────────────────────────────────
+# Khi gặp AADSTS50196, block mọi token exchange trong COOLDOWN giây.
+_CB_LOCK = threading.Lock()
+_cb_open_until: float = 0.0          # timestamp khi circuit breaker mở lại
+_CB_COOLDOWN = 90                    # giây cooldown khi bị trip
+
+
+def _cb_is_open() -> bool:
+    """Trả True nếu circuit breaker đang mở (đang trong cooldown)."""
+    with _CB_LOCK:
+        return time.time() < _cb_open_until
+
+
+def _cb_trip() -> None:
+    """Kích hoạt cooldown toàn app khi gặp AADSTS50196."""
+    with _CB_LOCK:
+        global _cb_open_until
+        _cb_open_until = time.time() + _CB_COOLDOWN
+
+
+def _remaining_cooldown() -> int:
+    with _CB_LOCK:
+        remaining = _cb_open_until - time.time()
+        return max(0, int(remaining))
+
+
+def _cache_key(refresh_token: str, client_id: str) -> str:
+    return f"{refresh_token.strip()}::{client_id.strip()}"
+
+
+def _cache_get(refresh_token: str, client_id: str) -> Optional["TokenInfo"]:
+    key = _cache_key(refresh_token, client_id)
+    with _TOKEN_CACHE_LOCK:
+        entry = _token_cache.get(key)
+    if entry is None:
+        return None
+    token_info, expire_at = entry
+    if time.time() < expire_at - _TOKEN_REUSE_BUFFER:
+        return token_info
+    return None
+
+
+def _cache_put(old_refresh: str, client_id: str, token_info: "TokenInfo",
+               expires_in: int = 3600) -> None:
+    key = _cache_key(old_refresh, client_id)
+    new_refresh = token_info.get("refresh_token", old_refresh)
+    new_key = _cache_key(new_refresh, client_id)
+    expire_at = time.time() + expires_in
+    with _TOKEN_CACHE_LOCK:
+        entry = (token_info, expire_at)
+        _token_cache[key] = entry      # old token alias
+        _token_cache[new_key] = entry  # new rotated token alias
 
 TokenInfo = Dict[str, str]
 
@@ -163,13 +234,27 @@ def _message_detail_request_config(api_family: str, message_id: str) -> Tuple[st
 
 def exchange_refresh_token(
     refresh_token: str, client_id: str, tenant_id: str = "consumers"
-) -> Tuple[bool, TokenInfo | str]:
-    """Exchange refresh_token and keep token metadata for API selection.
+) -> Tuple[bool, "TokenInfo | str"]:
+    """Exchange refresh_token với caching access token và global circuit breaker.
 
-    For personal Hotmail/Outlook.com accounts use tenant_id='consumers' (default).
-    For org/school (Entra) accounts pass the tenant GUID or domain, e.g.
-    tenant_id='2a141a9b-4ef4-4094-a1e5-59bf690777c6'.
+    - Cache access token, reuse cho đến khi gần hết hạn (tránh spam /token)
+    - Khi gặp AADSTS50196 → trip circuit breaker 90s toàn app
+    - Không retry POST /token (chỉ retry GET mail requests)
     """
+    # 1. Kiểm tra cache trước
+    cached = _cache_get(refresh_token, client_id)
+    if cached is not None:
+        return True, cached
+
+    # 2. Kiểm tra circuit breaker
+    if _cb_is_open():
+        secs = _remaining_cooldown()
+        return False, (
+            f"token_error: AADSTS50196 cooldown đang hoạt động, "
+            f"vui lòng chờ ~{secs}s trước khi thử lại."
+        )
+
+    # 3. Thực hiện exchange
     token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
     payload = {
         "client_id": client_id.strip(),
@@ -182,11 +267,27 @@ def exchange_refresh_token(
     except Exception as exc:
         return False, f"request_error: {exc}"
 
+    # 4. Xử lý kết quả
     access_token = data.get("access_token")
     if access_token:
-        return True, _build_token_info(data, refresh_token, client_id, tenant_id)
+        token_info = _build_token_info(data, refresh_token, client_id, tenant_id)
+        expires_in = int(data.get("expires_in", 3600))
+        _cache_put(refresh_token, client_id, token_info, expires_in)
+        return True, token_info
 
-    err = data.get("error_description") or data.get("error") or str(data)
+    # 5. Xử lý lỗi
+    err_desc = data.get("error_description", "")
+    err_code = data.get("error", "")
+    err = err_desc or err_code or str(data)
+
+    if "50196" in err:
+        _cb_trip()
+        secs = _remaining_cooldown()
+        return False, (
+            f"token_error: AADSTS50196 - Microsoft phát hiện request loop. "
+            f"Tất cả tài khoản sẽ được thử lại sau ~{secs}s."
+        )
+
     return False, f"token_error: {err}"
 
 

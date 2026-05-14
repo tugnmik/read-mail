@@ -60,42 +60,71 @@ def get_token_from_credentials(email: str, password: str) -> dict:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
+                  "--disable-blink-features=AutomationControlled"],
         )
-        page = browser.new_context().new_page()
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        )
+        page = context.new_page()
         page.on("request", intercept_request)
 
         try:
-            page.goto(auth_url, timeout=30000)
-            page.wait_for_load_state("networkidle", timeout=15000)
+            # ── Tải trang login ────────────────────────────────────────────
+            page.goto(auth_url, wait_until="domcontentloaded", timeout=60000)
+            # Chờ input email xuất hiện (không dùng networkidle vì Microsoft
+            # có background requests liên tục)
+            page.wait_for_selector(
+                'input[type="email"], input[name="loginfmt"], input[name="login"]',
+                timeout=30000,
+            )
 
-            # Step 1: Fill email
-            page.fill('input[type="email"], input[name="loginfmt"], input[name="login"]',
-                      email, timeout=8000)
-            page.click('input[type="submit"], button[type="submit"], #idSIButton9',
-                       timeout=5000)
-            page.wait_for_load_state("networkidle", timeout=10000)
+            # ── Nhập email ─────────────────────────────────────────────────
+            page.fill(
+                'input[type="email"], input[name="loginfmt"], input[name="login"]',
+                email,
+            )
+            page.click(
+                'input[type="submit"], button[type="submit"], #idSIButton9',
+                timeout=8000,
+            )
 
-            # Step 2: Fill password
-            page.fill('input[type="password"], input[name="passwd"]',
-                      password, timeout=8000)
-            page.click('input[type="submit"], button[type="submit"], #idSIButton9',
-                       timeout=5000)
+            # ── Chờ password hoặc trang tiếp theo ─────────────────────────
+            try:
+                page.wait_for_selector(
+                    'input[type="password"], input[name="passwd"]',
+                    timeout=20000,
+                )
+                # ── Nhập password ──────────────────────────────────────────
+                page.fill('input[type="password"], input[name="passwd"]', password)
+                page.click(
+                    'input[type="submit"], button[type="submit"], #idSIButton9',
+                    timeout=8000,
+                )
+            except Exception:
+                # Có thể đã redirect sang trang khác (Consent / error), để
+                # polling loop xử lý
+                pass
 
-            # Step 3: Poll loop - xử lý các trang trung gian
-            for _ in range(25):
+            # ── Polling loop: xử lý các trang trung gian Microsoft ─────────
+            for _ in range(35):
                 if auth_code["value"]:
                     break
 
+                # Chờ trang ổn định (domcontentloaded), bỏ qua timeout
                 try:
-                    page.wait_for_load_state("networkidle", timeout=5000)
+                    page.wait_for_load_state("domcontentloaded", timeout=6000)
                 except Exception:
                     pass
 
                 url = page.url
 
-                # Đã có code trong URL
-                if REDIRECT_URI in url:
+                # Đã có code trong URL (redirect thành công)
+                if REDIRECT_URI in url or "code=" in url:
                     code = extract_code(url)
                     if code:
                         auth_code["value"] = code
@@ -105,13 +134,13 @@ def get_token_from_credentials(email: str, password: str) -> dict:
                 if "error=" in url and REDIRECT_URI not in url:
                     break
 
-                # KMSI "Stay signed in?" → click No
+                # KMSI "Stay signed in?" → click No / Back
                 if "KmsiInterrupt" in url or "kmsi" in url.lower():
                     try:
-                        page.click('#idBtn_Back', timeout=3000)
+                        page.click('#idBtn_Back', timeout=4000)
                     except Exception:
                         try:
-                            page.click('button:has-text("No")', timeout=3000)
+                            page.click('button:has-text("No")', timeout=4000)
                         except Exception:
                             pass
                     continue
@@ -119,39 +148,53 @@ def get_token_from_credentials(email: str, password: str) -> dict:
                 # Consent page → Accept
                 if "Consent" in url or "consent" in url:
                     try:
-                        page.click('button:has-text("Accept")', timeout=5000)
+                        page.click('button:has-text("Accept")', timeout=6000)
                     except Exception:
                         pass
                     continue
 
-                # "Action Required" / "Protect your account" / MFA setup → skip nếu có nút
+                # "Action Required" / "Protect account" / MFA prompt → skip
                 try:
                     skip_btn = page.locator(
                         'button:has-text("Skip"), '
                         'button:has-text("Not now"), '
+                        'button:has-text("Skip for now"), '
                         'a:has-text("Skip"), '
                         'a:has-text("Not now"), '
                         '#idBtn_Back'
                     ).first
                     if skip_btn.count() > 0:
-                        skip_btn.click(timeout=3000)
+                        skip_btn.click(timeout=4000)
                         continue
                 except Exception:
                     pass
 
-                # "Suspicious activity" confirm → click Continue
+                # "Suspicious activity" / verify prompt → Continue
                 try:
                     cont_btn = page.locator(
                         'button:has-text("Continue"), '
                         'input[value="Continue"]'
                     ).first
                     if cont_btn.count() > 0:
-                        cont_btn.click(timeout=3000)
+                        cont_btn.click(timeout=4000)
                         continue
                 except Exception:
                     pass
 
-                page.wait_for_timeout(1000)
+                # Password field xuất hiện lại (wrong page detection bỏ qua)
+                try:
+                    pw_field = page.locator('input[type="password"], input[name="passwd"]').first
+                    if pw_field.count() > 0 and not pw_field.input_value():
+                        pw_field.fill(password)
+                        page.click(
+                            'input[type="submit"], button[type="submit"], #idSIButton9',
+                            timeout=5000,
+                        )
+                        continue
+                except Exception:
+                    pass
+
+                page.wait_for_timeout(1500)
 
             # Kiểm tra final URL
             if not auth_code["value"]:
