@@ -50,13 +50,34 @@ def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
         return default
 
 
-OAUTH2_TARGET_WORKERS = _env_int("OAUTH2_TARGET_WORKERS", 10)
+def _default_oauth2_target_workers() -> int:
+    if os.environ.get("RENDER_EXTERNAL_URL"):
+        return 2
+    return 10
+
+
+def _default_oauth2_min_workers() -> int:
+    if os.environ.get("RENDER_EXTERNAL_URL"):
+        return 1
+    return 3
+
+
+def _default_oauth2_stagger_seconds() -> float:
+    if os.environ.get("RENDER_EXTERNAL_URL"):
+        return 1.0
+    return 0.6
+
+
+OAUTH2_TARGET_WORKERS = _env_int("OAUTH2_TARGET_WORKERS", _default_oauth2_target_workers())
 OAUTH2_MIN_WORKERS = min(
     OAUTH2_TARGET_WORKERS,
-    _env_int("OAUTH2_MIN_WORKERS", 3),
+    _env_int("OAUTH2_MIN_WORKERS", _default_oauth2_min_workers()),
 )
 OAUTH2_MAX_RETRIES = _env_int("OAUTH2_MAX_RETRIES", 2, minimum=0)
-OAUTH2_WORKER_STAGGER_SECONDS = _env_float("OAUTH2_WORKER_STAGGER_SECONDS", 0.6)
+OAUTH2_WORKER_STAGGER_SECONDS = _env_float(
+    "OAUTH2_WORKER_STAGGER_SECONDS",
+    _default_oauth2_stagger_seconds(),
+)
 
 
 # ── Serve frontend ──────────────────────────────────────────────────

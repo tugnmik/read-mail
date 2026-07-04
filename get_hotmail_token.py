@@ -74,7 +74,16 @@ def launch_token_browser(playwright: Any) -> Any:
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
+            "--disable-background-networking",
+            "--disable-background-timer-throttling",
+            "--disable-breakpad",
             "--disable-blink-features=AutomationControlled",
+            "--disable-component-extensions-with-background-pages",
+            "--disable-default-apps",
+            "--disable-extensions",
+            "--disable-features=Translate,BackForwardCache,AcceptCHFrame,MediaRouter",
+            "--disable-renderer-backgrounding",
+            "--mute-audio",
         ],
     )
 
