@@ -495,7 +495,7 @@ async function getOAuth2() {
     const raw = oauth2CredInput.value.trim();
     if (!raw) { alert("Chưa nhập email|password!"); return; }
 
-    const lines = raw.split("\n").map((l) => l.trim()).filter((l) => l).slice(0, 10);
+    const lines = raw.split("\n").map((l) => l.trim()).filter((l) => l);
     const tasks = [];
     for (const line of lines) {
         const parts = line.split("|");

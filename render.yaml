@@ -10,3 +10,17 @@ services:
         value: 10000
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: /root/.cache/ms-playwright
+      - key: WEB_CONCURRENCY
+        value: 1
+      - key: GUNICORN_THREADS
+        value: 8
+      - key: GUNICORN_TIMEOUT
+        value: 900
+      - key: OAUTH2_TARGET_WORKERS
+        value: 10
+      - key: OAUTH2_MIN_WORKERS
+        value: 3
+      - key: OAUTH2_MAX_RETRIES
+        value: 2
+      - key: OAUTH2_WORKER_STAGGER_SECONDS
+        value: 0.6

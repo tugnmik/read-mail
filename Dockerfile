@@ -19,4 +19,4 @@ RUN pip install playwright && playwright install chromium --with-deps
 COPY . .
 
 EXPOSE 10000
-CMD ["python", "web_server.py"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-10000} --workers ${WEB_CONCURRENCY:-1} --threads ${GUNICORN_THREADS:-8} --timeout ${GUNICORN_TIMEOUT:-900} --graceful-timeout 60 web_server:app"]
