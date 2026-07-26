@@ -27,6 +27,18 @@ OUTLOOK_MAIL_READ_SCOPE = "https://outlook.office.com/Mail.Read offline_access"
 # Keywords cho phép phát hiện token có quyền đọc mail qua REST API
 _MAIL_REST_KEYWORDS = ("mail.read", "mail.readwrite", "mail.readbasic")
 
+import http.cookiejar
+
+class BlockAllCookies(http.cookiejar.CookiePolicy):
+    def set_ok(self, cookie, request):
+        return False
+    def type_ok(self, type):
+        return False
+    def domain_ok(self, domain):
+        return False
+    def path_ok(self, path):
+        return False
+
 # Retry chỉ cho GET (mail list/detail), KHÔNG retry POST (token exchange)
 _retry_strategy = Retry(
     total=1,
@@ -40,6 +52,7 @@ _adapter = HTTPAdapter(
     max_retries=_retry_strategy,
 )
 _session = requests.Session()
+_session.cookies.set_policy(BlockAllCookies())
 _session.mount("https://", _adapter)
 _session.mount("http://", _adapter)
 
@@ -508,11 +521,24 @@ def get_message_detail(
 def process_single_account(acc: Dict) -> Dict:
     """Exchange token, pick the right mail API, and read the latest message."""
     email = acc.get("email", "").strip()
+    prefetched_messages = acc.get("prefetched_messages")
     access_token = acc.get("access_token", "").strip()
     refresh_token = acc.get("refresh_token", "").strip()
     client_id = acc.get("client_id", "").strip()
     tenant_id = acc.get("tenant_id", "consumers").strip() or "consumers"
     scope = acc.get("scope", "").strip()
+
+    if prefetched_messages is not None:
+        return {
+            "email": email,
+            "status": "ok",
+            "messages": prefetched_messages,
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "tenant_id": tenant_id,
+            "mail_api": "graph_client",
+            "token_scope": scope,
+        }
 
     if not all([email, refresh_token, client_id]) and not access_token:
         return {"email": email, "status": "error", "error": "Thieu thong tin"}

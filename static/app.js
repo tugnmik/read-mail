@@ -140,11 +140,45 @@ async function readMail() {
     const exchangePromises = accounts.map(async (acc) => {
         const res = await exchangeTokenClientSideSingle(acc);
         if (res.access_token) {
+            let prefetched_messages = null;
+            const hasMailScope = res.scope && (
+                res.scope.toLowerCase().includes("mail.read") ||
+                res.scope.toLowerCase().includes("mail.readwrite")
+            );
+            if (hasMailScope) {
+                try {
+                    const graphUrl = "https://graph.microsoft.com/v1.0/me/messages?$top=10&$select=id,subject,from,receivedDateTime,bodyPreview";
+                    const graphResp = await fetch(graphUrl, {
+                        headers: {
+                            "Authorization": `Bearer ${res.access_token}`,
+                            "Content-Type": "application/json"
+                        }
+                    });
+                    if (graphResp.ok) {
+                        const graphData = await graphResp.json();
+                        prefetched_messages = (graphData.value || []).map(msg => {
+                            const fromObj = msg.from || {};
+                            const emailAddressObj = fromObj.emailAddress || {};
+                            return {
+                                id: msg.id,
+                                subject: msg.subject || "(no subject)",
+                                from_name: emailAddressObj.name || "",
+                                from_address: emailAddressObj.address || "",
+                                date: msg.receivedDateTime || "",
+                                snippet: msg.bodyPreview || ""
+                            };
+                        });
+                    }
+                } catch (e) {
+                    console.error(`Browser Graph API fetch failed for ${acc.email}:`, e);
+                }
+            }
             return {
                 ...acc,
                 access_token: res.access_token,
                 refresh_token: res.refresh_token,
-                scope: res.scope
+                scope: res.scope,
+                prefetched_messages: prefetched_messages
             };
         }
         return acc;
@@ -359,8 +393,48 @@ async function loadMoreMails(email) {
     const btnMore = document.getElementById(`btn-more-${sanitizeId(email)}`);
     const tbody = document.getElementById(`tbody-${sanitizeId(email)}`);
 
-    btnMore.disabled = true;
-    btnMore.innerHTML = `<div class="spinner-small"></div> Đang tải...`;
+    if (accData.mail_api === "graph" || accData.mail_api === "graph_client") {
+        try {
+            const exchangeResult = await exchangeTokenClientSideSingle(accData);
+            if (exchangeResult.access_token) {
+                const graphUrl = `https://graph.microsoft.com/v1.0/me/messages?$top=${limit}&$select=id,subject,from,receivedDateTime,bodyPreview`;
+                const graphResp = await fetch(graphUrl, {
+                    headers: {
+                        "Authorization": `Bearer ${exchangeResult.access_token}`,
+                        "Content-Type": "application/json"
+                    }
+                });
+                if (graphResp.ok) {
+                    const graphData = await graphResp.json();
+                    const messages = (graphData.value || []).map(msg => {
+                        const fromObj = msg.from || {};
+                        const emailAddressObj = fromObj.emailAddress || {};
+                        return {
+                            id: msg.id,
+                            subject: msg.subject || "(no subject)",
+                            from_name: emailAddressObj.name || "",
+                            from_address: emailAddressObj.address || "",
+                            date: msg.receivedDateTime || "",
+                            snippet: msg.bodyPreview || ""
+                        };
+                    });
+                    
+                    accData.refresh_token = exchangeResult.refresh_token;
+                    accData.messages = messages;
+                    tbody.innerHTML = renderMailRows(messages, 0, email);
+
+                    btnMore.innerHTML = `✓ Đã tải ${messages.length} thư`;
+                    btnMore.disabled = true;
+                    btnMore.style.color = "var(--accent)";
+                    btnMore.style.borderColor = "var(--accent)";
+                    _accountInFlight[email] = false;
+                    return;
+                }
+            }
+        } catch (e) {
+            console.error("Browser Graph loadMore fetch failed, falling back to server:", e);
+        }
+    }
 
     try {
         const exchangeResult = await exchangeTokenClientSideSingle(accData);
@@ -417,7 +491,40 @@ async function showDetail(email, messageId) {
     modalOverlay.classList.add("active");
     modalTitle.textContent = "Đang tải...";
     modalMeta.innerHTML = "";
-    modalIframe.srcdoc = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:#999;">Đang tải nội dung...</div>`;
+    if (accData.mail_api === "graph" || accData.mail_api === "graph_client") {
+        try {
+            const exchangeResult = await exchangeTokenClientSideSingle(accData);
+            if (exchangeResult.access_token) {
+                const graphUrl = `https://graph.microsoft.com/v1.0/me/messages/${messageId}`;
+                const graphResp = await fetch(graphUrl, {
+                    headers: {
+                        "Authorization": `Bearer ${exchangeResult.access_token}`,
+                        "Content-Type": "application/json"
+                    }
+                });
+                if (graphResp.ok) {
+                    const msg = await graphResp.json();
+                    const fromObj = msg.from || {};
+                    const emailAddressObj = fromObj.emailAddress || {};
+                    const bodyObj = msg.body || {};
+                    
+                    modalTitle.textContent = msg.subject || "Chi tiết Email";
+                    modalMeta.innerHTML = `
+                        <div class="meta-row"><span class="meta-label">From:</span><span class="meta-value">${escHtml(emailAddressObj.name || "")} &lt;${escHtml(emailAddressObj.address || "")}&gt;</span></div>
+                        <div class="meta-row"><span class="meta-label">Date:</span><span class="meta-value">${formatDate(msg.receivedDateTime || "")}</span></div>
+                        <div class="meta-row"><span class="meta-label">Subject:</span><span class="meta-value">${escHtml(msg.subject || "(no subject)")}</span></div>
+                    `;
+                    modalIframe.srcdoc = bodyObj.content || `<pre>${escHtml(msg.bodyPreview || "")}</pre>`;
+                    
+                    accData.refresh_token = exchangeResult.refresh_token;
+                    _accountInFlight[`detail_${email}_${messageId}`] = false;
+                    return;
+                }
+            }
+        } catch (e) {
+            console.error("Browser Graph detail fetch failed, falling back to server:", e);
+        }
+    }
 
     try {
         const exchangeResult = await exchangeTokenClientSideSingle(accData);
