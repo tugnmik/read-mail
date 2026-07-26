@@ -92,12 +92,19 @@ function parseAccounts() {
         if (!trimmed) continue;
         const parts = trimmed.split("|");
         if (parts.length < 4) continue;
+
+        const email = parts[0].trim();
+        const domain = email.split("@")[1] || "";
+        const personalDomains = ["outlook.", "hotmail.", "live.", "msn.", "windowslive."];
+        const isPersonal = personalDomains.some(d => domain.toLowerCase().startsWith(d));
+        const autoTenant = isPersonal ? "consumers" : "organizations";
+
         accounts.push({
-            email: parts[0].trim(),
+            email: email,
             password: parts[1].trim(),
             refresh_token: parts[2].trim(),
             client_id: parts[3].trim(),
-            tenant_id: (parts[4] || "").trim() || "consumers",
+            tenant_id: (parts[4] || "").trim() || autoTenant,
         });
     }
     return accounts;
