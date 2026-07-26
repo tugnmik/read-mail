@@ -196,6 +196,7 @@ def api_mail_all():
     client_id = body.get("client_id", "").strip()
     tenant_id = body.get("tenant_id", "consumers").strip() or "consumers"
     limit = body.get("limit", 10)
+    email = body.get("email", "").strip()
 
     if not all([refresh_token, client_id]):
         return jsonify({"error": "Thieu refresh_token hoac client_id"}), 400
@@ -205,7 +206,7 @@ def api_mail_all():
         return jsonify({"error": token_or_err}), 401
 
     token_info = token_or_err
-    ok_msgs, msgs_or_err = get_messages(token_info, limit=int(limit))
+    ok_msgs, msgs_or_err = get_messages(token_info, limit=int(limit), email_addr=email)
     if not ok_msgs:
         return jsonify({"error": msgs_or_err}), 500
 
@@ -230,6 +231,7 @@ def api_mail_detail():
     client_id = body.get("client_id", "").strip()
     tenant_id = body.get("tenant_id", "consumers").strip() or "consumers"
     message_id = body.get("message_id", "").strip()
+    email = body.get("email", "").strip()
 
     if not all([refresh_token, client_id, message_id]):
         return jsonify({"error": "Thieu thong tin"}), 400
@@ -239,7 +241,7 @@ def api_mail_detail():
         return jsonify({"error": token_or_err}), 401
 
     token_info = token_or_err
-    ok_detail, detail_or_err = get_message_detail(token_info, message_id)
+    ok_detail, detail_or_err = get_message_detail(token_info, message_id, email_addr=email)
     if not ok_detail:
         return jsonify({"error": detail_or_err}), 500
 

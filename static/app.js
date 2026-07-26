@@ -354,6 +354,7 @@ async function loadMoreMails(email) {
                 client_id: accData.client_id,
                 tenant_id: accData.tenant_id || "consumers",
                 limit: limit,
+                email: email,
             }),
         });
         const data = await resp.json();
@@ -408,6 +409,7 @@ async function showDetail(email, messageId) {
                 client_id: accData.client_id,
                 tenant_id: accData.tenant_id || "consumers",
                 message_id: messageId,
+                email: email,
             }),
         });
         const data = await resp.json();

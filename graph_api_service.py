@@ -399,27 +399,85 @@ def get_messages(
         return _mail_request_failed(resp, family)
 
     # Cả Graph lẫn Outlook REST đều fail → thử IMAP XOAUTH2
-    if email_addr and "imap" in token_info.get("scope", "").lower():
-        try:
-            from imap_mail_reader import read_messages_imap
+    if email_addr:
+        # Cách 1: Thử trực tiếp nếu token hiện tại có IMAP
+        if "imap" in token_info.get("scope", "").lower():
+            try:
+                from imap_mail_reader import read_messages_imap
+                ok, result = read_messages_imap(
+                    token_info["access_token"], email_addr, limit=limit
+                )
+                if ok:
+                    token_info["api_family"] = "imap"
+                    return True, result
+            except Exception:
+                pass
 
-            ok, result = read_messages_imap(
-                token_info["access_token"], email_addr, limit=limit
-            )
-            if ok:
-                token_info["api_family"] = "imap"
-                return True, result
-        except Exception:
-            pass
+        # Cách 2: Exchange lại token không có scope để lấy IMAP scope (đặc biệt hữu ích trên Render/IP datacenter bị chặn)
+        rt = token_info.get("refresh_token")
+        cid = token_info.get("client_id")
+        tid = token_info.get("tenant_id", "consumers")
+        if rt and cid:
+            data, _ = _do_single_exchange(rt, cid, tid)
+            if data and data.get("access_token"):
+                try:
+                    from imap_mail_reader import read_messages_imap
+                    ok, result = read_messages_imap(
+                        data["access_token"], email_addr, limit=limit
+                    )
+                    if ok:
+                        token_info["access_token"] = data["access_token"]
+                        token_info["refresh_token"] = data.get("refresh_token") or rt
+                        token_info["scope"] = data.get("scope", "")
+                        token_info["api_family"] = "imap"
+                        _cache_put(rt, cid, token_info, int(data.get("expires_in", 3600)))
+                        return True, result
+                except Exception:
+                    pass
 
     return False, "Token khong co quyen doc mail (da thu ca Graph va Outlook)"
 
 
 def get_message_detail(
-    token_or_info: TokenInfo | str, message_id: str
+    token_or_info: TokenInfo | str, message_id: str, email_addr: str = ""
 ) -> Tuple[bool, Dict | str]:
-    """Read full email body, with the same Graph/Outlook fallback as get_messages."""
+    """Read full email body, with Graph/Outlook/IMAP fallback."""
     token_info = _normalize_token_info(token_or_info)
+
+    # Nếu là IMAP message hoặc api_family là imap
+    if (message_id.startswith("imap_") or token_info.get("api_family") == "imap") and email_addr:
+        try:
+            from imap_mail_reader import read_message_detail_imap
+            ok, result = read_message_detail_imap(
+                token_info["access_token"], email_addr, message_id
+            )
+            if ok:
+                return True, result
+        except Exception:
+            pass
+
+        # Re-exchange lấy token có IMAP
+        rt = token_info.get("refresh_token")
+        cid = token_info.get("client_id")
+        tid = token_info.get("tenant_id", "consumers")
+        if rt and cid:
+            data, _ = _do_single_exchange(rt, cid, tid)
+            if data and data.get("access_token"):
+                try:
+                    from imap_mail_reader import read_message_detail_imap
+                    ok, result = read_message_detail_imap(
+                        data["access_token"], email_addr, message_id
+                    )
+                    if ok:
+                        token_info["access_token"] = data["access_token"]
+                        token_info["refresh_token"] = data.get("refresh_token") or rt
+                        token_info["scope"] = data.get("scope", "")
+                        token_info["api_family"] = "imap"
+                        _cache_put(rt, cid, token_info, int(data.get("expires_in", 3600)))
+                        return True, result
+                except Exception:
+                    pass
+
     headers = {
         "Authorization": f"Bearer {token_info['access_token']}",
         "Content-Type": "application/json",
