@@ -508,13 +508,39 @@ def get_message_detail(
 def process_single_account(acc: Dict) -> Dict:
     """Exchange token, pick the right mail API, and read the latest message."""
     email = acc.get("email", "").strip()
+    access_token = acc.get("access_token", "").strip()
     refresh_token = acc.get("refresh_token", "").strip()
     client_id = acc.get("client_id", "").strip()
     tenant_id = acc.get("tenant_id", "consumers").strip() or "consumers"
+    scope = acc.get("scope", "").strip()
 
-    if not all([email, refresh_token, client_id]):
+    if not all([email, refresh_token, client_id]) and not access_token:
         return {"email": email, "status": "error", "error": "Thieu thong tin"}
 
+    # 1. Thử dùng access_token được exchange sẵn từ client-side
+    if access_token:
+        token_info = {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "tenant_id": tenant_id,
+            "scope": scope,
+            "api_family": _detect_api_family(scope, access_token),
+        }
+        ok_msgs, msgs_or_err = get_messages(token_info, limit=1, email_addr=email)
+        if ok_msgs:
+            return {
+                "email": email,
+                "status": "ok",
+                "messages": msgs_or_err,
+                "refresh_token": token_info["refresh_token"],
+                "client_id": token_info["client_id"],
+                "tenant_id": token_info.get("tenant_id", "consumers"),
+                "mail_api": token_info["api_family"],
+                "token_scope": token_info["scope"],
+            }
+
+    # 2. Backup path: Exchange trên server-side
     ok_token, token_or_err = exchange_refresh_token(refresh_token, client_id, tenant_id)
     if not ok_token:
         return {"email": email, "status": "error", "error": token_or_err}
@@ -534,3 +560,4 @@ def process_single_account(acc: Dict) -> Dict:
         "mail_api": token_info["api_family"],
         "token_scope": token_info["scope"],
     }
+

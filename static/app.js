@@ -134,6 +134,23 @@ async function readMail() {
     resultsContainer.innerHTML = "";
     resultsSection.style.display = "block";
     resultsSummary.textContent = `0/${totalCount} đang xử lý...`;
+    statusEl.textContent = `Đang xác thực tài khoản qua Microsoft...`;
+
+    // Exchange tokens on the client side in parallel to avoid Render IP block
+    const exchangePromises = accounts.map(async (acc) => {
+        const res = await exchangeTokenClientSideSingle(acc);
+        if (res.access_token) {
+            return {
+                ...acc,
+                access_token: res.access_token,
+                refresh_token: res.refresh_token,
+                scope: res.scope
+            };
+        }
+        return acc;
+    });
+    accounts = await Promise.all(exchangePromises);
+
     statusEl.textContent = `Đang đọc ${totalCount} account song song...`;
 
     // Build a lookup map for accounts by index
@@ -346,11 +363,13 @@ async function loadMoreMails(email) {
     btnMore.innerHTML = `<div class="spinner-small"></div> Đang tải...`;
 
     try {
+        const exchangeResult = await exchangeTokenClientSideSingle(accData);
         const resp = await fetch("/api/mail-all", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                refresh_token: accData.refresh_token,
+                access_token: exchangeResult.access_token,
+                refresh_token: exchangeResult.refresh_token,
                 client_id: accData.client_id,
                 tenant_id: accData.tenant_id || "consumers",
                 limit: limit,
@@ -401,11 +420,13 @@ async function showDetail(email, messageId) {
     modalIframe.srcdoc = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:#999;">Đang tải nội dung...</div>`;
 
     try {
+        const exchangeResult = await exchangeTokenClientSideSingle(accData);
         const resp = await fetch("/api/mail-detail", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                refresh_token: accData.refresh_token,
+                access_token: exchangeResult.access_token,
+                refresh_token: exchangeResult.refresh_token,
                 client_id: accData.client_id,
                 tenant_id: accData.tenant_id || "consumers",
                 message_id: messageId,
@@ -604,4 +625,49 @@ function copyOAuth2(btn, idx) {
         btn.textContent = "\u2713 Đã copy";
         setTimeout(() => { btn.textContent = "Copy"; }, 2000);
     });
+}
+
+async function exchangeTokenClientSideSingle(acc) {
+    try {
+        const url = `https://login.microsoftonline.com/${acc.tenant_id || "consumers"}/oauth2/v2.0/token`;
+        let payload = new URLSearchParams({
+            client_id: acc.client_id,
+            grant_type: "refresh_token",
+            refresh_token: acc.refresh_token,
+        });
+
+        let resp = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: payload.toString()
+        });
+        let data = await resp.json();
+
+        if (data.access_token) {
+            return {
+                access_token: data.access_token,
+                refresh_token: data.refresh_token || acc.refresh_token,
+                scope: data.scope || ""
+            };
+        }
+
+        // Try scoped if default exchange lacks access
+        payload.set("scope", "https://graph.microsoft.com/Mail.Read offline_access");
+        resp = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: payload.toString()
+        });
+        data = await resp.json();
+        if (data.access_token) {
+            return {
+                access_token: data.access_token,
+                refresh_token: data.refresh_token || acc.refresh_token,
+                scope: data.scope || ""
+            };
+        }
+    } catch (e) {
+        console.error("exchangeTokenClientSideSingle error:", e);
+    }
+    return { access_token: "", refresh_token: acc.refresh_token, scope: "" };
 }

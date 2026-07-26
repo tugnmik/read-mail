@@ -192,20 +192,30 @@ def api_read_mail():
 def api_mail_all():
     """Lay danh sach mail cua 1 account voi limit tuy chinh."""
     body = request.get_json(silent=True) or {}
+    access_token = body.get("access_token", "").strip()
     refresh_token = body.get("refresh_token", "").strip()
     client_id = body.get("client_id", "").strip()
     tenant_id = body.get("tenant_id", "consumers").strip() or "consumers"
     limit = body.get("limit", 10)
     email = body.get("email", "").strip()
 
-    if not all([refresh_token, client_id]):
+    if not all([refresh_token, client_id]) and not access_token:
         return jsonify({"error": "Thieu refresh_token hoac client_id"}), 400
 
-    ok_token, token_or_err = exchange_refresh_token(refresh_token, client_id, tenant_id)
-    if not ok_token:
-        return jsonify({"error": token_or_err}), 401
-
-    token_info = token_or_err
+    if access_token:
+        token_info = {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "tenant_id": tenant_id,
+            "scope": body.get("scope", "").strip(),
+            "api_family": "graph",
+        }
+    else:
+        ok_token, token_or_err = exchange_refresh_token(refresh_token, client_id, tenant_id)
+        if not ok_token:
+            return jsonify({"error": token_or_err}), 401
+        token_info = token_or_err
     ok_msgs, msgs_or_err = get_messages(token_info, limit=int(limit), email_addr=email)
     if not ok_msgs:
         return jsonify({"error": msgs_or_err}), 500
@@ -227,20 +237,30 @@ def api_mail_all():
 def api_mail_detail():
     """Lay full HTML body cua 1 message cu the."""
     body = request.get_json(silent=True) or {}
+    access_token = body.get("access_token", "").strip()
     refresh_token = body.get("refresh_token", "").strip()
     client_id = body.get("client_id", "").strip()
     tenant_id = body.get("tenant_id", "consumers").strip() or "consumers"
     message_id = body.get("message_id", "").strip()
     email = body.get("email", "").strip()
 
-    if not all([refresh_token, client_id, message_id]):
+    if (not all([refresh_token, client_id]) and not access_token) or not message_id:
         return jsonify({"error": "Thieu thong tin"}), 400
 
-    ok_token, token_or_err = exchange_refresh_token(refresh_token, client_id, tenant_id)
-    if not ok_token:
-        return jsonify({"error": token_or_err}), 401
-
-    token_info = token_or_err
+    if access_token:
+        token_info = {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "tenant_id": tenant_id,
+            "scope": body.get("scope", "").strip(),
+            "api_family": "graph",
+        }
+    else:
+        ok_token, token_or_err = exchange_refresh_token(refresh_token, client_id, tenant_id)
+        if not ok_token:
+            return jsonify({"error": token_or_err}), 401
+        token_info = token_or_err
     ok_detail, detail_or_err = get_message_detail(token_info, message_id, email_addr=email)
     if not ok_detail:
         return jsonify({"error": detail_or_err}), 500
