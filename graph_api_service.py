@@ -518,6 +518,14 @@ def get_message_detail(
     return False, "Token khong co quyen xem chi tiet mail (da thu ca Graph va Outlook)"
 
 
+def detect_tenant(email: str) -> str:
+    """Auto-detect tenant (consumers vs organizations) based on email domain."""
+    domain = email.split("@")[-1].lower() if "@" in email else ""
+    personal_domains = ["outlook.", "hotmail.", "live.", "msn.", "windowslive."]
+    is_personal = any(domain.startswith(d) for d in personal_domains)
+    return "consumers" if is_personal else "organizations"
+
+
 def process_single_account(acc: Dict) -> Dict:
     """Exchange token, pick the right mail API, and read the latest message."""
     email = acc.get("email", "").strip()
@@ -525,7 +533,7 @@ def process_single_account(acc: Dict) -> Dict:
     access_token = acc.get("access_token", "").strip()
     refresh_token = acc.get("refresh_token", "").strip()
     client_id = acc.get("client_id", "").strip()
-    tenant_id = acc.get("tenant_id", "consumers").strip() or "consumers"
+    tenant_id = acc.get("tenant_id", "").strip() or detect_tenant(email)
     scope = acc.get("scope", "").strip()
 
     if prefetched_messages is not None:
