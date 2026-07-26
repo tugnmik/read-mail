@@ -29,10 +29,10 @@ _MAIL_REST_KEYWORDS = ("mail.read", "mail.readwrite", "mail.readbasic")
 
 import http.cookiejar
 
-class BlockAllCookies(http.cookiejar.CookiePolicy):
+class BlockAllCookies(http.cookiejar.DefaultCookiePolicy):
     def set_ok(self, cookie, request):
         return False
-    def type_ok(self, type):
+    def return_ok(self, cookie, request):
         return False
     def domain_ok(self, domain):
         return False
