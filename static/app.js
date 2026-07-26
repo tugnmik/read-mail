@@ -67,7 +67,7 @@ document.addEventListener("keydown", (e) => {
 
 function updateOAuth2CredLineCount() {
     const lines = oauth2CredInput.value.trim().split("\n").filter((l) => l.trim());
-    oauth2CredLineCount.textContent = `${Math.min(lines.length, 10)} dòng`;
+    oauth2CredLineCount.textContent = `${lines.length} dòng`;
 }
 
 oauth2CredInput.addEventListener("input", updateOAuth2CredLineCount);

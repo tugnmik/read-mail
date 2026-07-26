@@ -68,7 +68,20 @@ def _default_oauth2_stagger_seconds() -> float:
     return 0.6
 
 
-OAUTH2_TARGET_WORKERS = _env_int("OAUTH2_TARGET_WORKERS", _default_oauth2_target_workers())
+def _default_oauth2_hard_max_workers() -> int:
+    if os.environ.get("RENDER_EXTERNAL_URL"):
+        return 2
+    return 20
+
+
+OAUTH2_HARD_MAX_WORKERS = _env_int(
+    "OAUTH2_HARD_MAX_WORKERS",
+    _default_oauth2_hard_max_workers(),
+)
+OAUTH2_TARGET_WORKERS = min(
+    OAUTH2_HARD_MAX_WORKERS,
+    _env_int("OAUTH2_TARGET_WORKERS", _default_oauth2_target_workers()),
+)
 OAUTH2_MIN_WORKERS = min(
     OAUTH2_TARGET_WORKERS,
     _env_int("OAUTH2_MIN_WORKERS", _default_oauth2_min_workers()),
@@ -414,11 +427,22 @@ def _drain_task_queue(task_queue):
             return remaining
 
 
-def _stream_oauth2_batch(tasks):
+def _resolve_oauth2_worker_config(total, requested_workers=None):
+    if requested_workers is None:
+        target_workers = OAUTH2_TARGET_WORKERS
+    else:
+        target_workers = max(1, min(OAUTH2_HARD_MAX_WORKERS, requested_workers))
+
+    target_workers = max(1, min(target_workers, total))
+    min_workers = min(OAUTH2_MIN_WORKERS, target_workers)
+    return target_workers, max(1, min_workers)
+
+
+def _stream_oauth2_batch(tasks, requested_workers=None):
     total = len(tasks)
     pending = list(tasks)
-    current_workers = min(OAUTH2_TARGET_WORKERS, total)
-    min_workers = min(OAUTH2_MIN_WORKERS, current_workers)
+    target_workers, min_workers = _resolve_oauth2_worker_config(total, requested_workers)
+    current_workers = target_workers
     emitted = 0
     ok_count = 0
     error_count = 0
@@ -462,7 +486,7 @@ def _stream_oauth2_batch(tasks):
 
                 payload["_progress"] = f"{emitted}/{total}"
                 payload["_worker_count"] = worker_count
-                payload["_target_workers"] = OAUTH2_TARGET_WORKERS
+                payload["_target_workers"] = target_workers
                 payload["_ok_count"] = ok_count
                 payload["_error_count"] = error_count
                 yield json.dumps(payload, ensure_ascii=False) + "\n"
@@ -498,7 +522,7 @@ def _stream_oauth2_batch(tasks):
                 "attempts": 0,
                 "_progress": f"{emitted}/{total}",
                 "_worker_count": worker_count,
-                "_target_workers": OAUTH2_TARGET_WORKERS,
+                "_target_workers": target_workers,
                 "_ok_count": ok_count,
                 "_error_count": error_count,
             }
@@ -511,9 +535,16 @@ def _stream_oauth2_batch(tasks):
 def api_get_token_stream():
     body = request.get_json(silent=True) or {}
     raw_accounts = body.get("accounts", [])
+    requested_workers = body.get("workers")
 
     if not isinstance(raw_accounts, list) or not raw_accounts:
         return jsonify({"error": "Khong co account nao"}), 400
+
+    if requested_workers is not None:
+        try:
+            requested_workers = int(requested_workers)
+        except (TypeError, ValueError):
+            return jsonify({"error": "workers phai la so nguyen"}), 400
 
     tasks = []
     for idx, acc in enumerate(raw_accounts):
@@ -529,7 +560,7 @@ def api_get_token_stream():
         )
 
     return Response(
-        _stream_oauth2_batch(tasks),
+        _stream_oauth2_batch(tasks, requested_workers=requested_workers),
         mimetype="application/x-ndjson",
         headers={
             "Cache-Control": "no-cache",

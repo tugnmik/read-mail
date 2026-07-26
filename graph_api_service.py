@@ -20,6 +20,13 @@ TOKEN_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
 GRAPH_BASE = "https://graph.microsoft.com/v1.0/me"
 OUTLOOK_BASE = "https://outlook.office.com/api/v2.0/me"
 
+# Scope dùng khi exchange lại cho MSA tokens thiếu Mail.Read
+GRAPH_MAIL_READ_SCOPE = "https://graph.microsoft.com/Mail.Read offline_access"
+OUTLOOK_MAIL_READ_SCOPE = "https://outlook.office.com/Mail.Read offline_access"
+
+# Keywords cho phép phát hiện token có quyền đọc mail qua REST API
+_MAIL_REST_KEYWORDS = ("mail.read", "mail.readwrite", "mail.readbasic")
+
 # Retry chỉ cho GET (mail list/detail), KHÔNG retry POST (token exchange)
 _retry_strategy = Retry(
     total=1,
@@ -98,6 +105,41 @@ def _cache_put(old_refresh: str, client_id: str, token_info: "TokenInfo",
         _token_cache[new_key] = entry  # new rotated token alias
 
 TokenInfo = Dict[str, str]
+
+
+def _has_mail_rest_scope(scope_str: str) -> bool:
+    """Return True nếu scope chứa quyền đọc mail qua REST API."""
+    low = scope_str.lower()
+    return any(kw in low for kw in _MAIL_REST_KEYWORDS)
+
+
+def _do_single_exchange(
+    refresh_token: str,
+    client_id: str,
+    tenant_id: str = "consumers",
+    scope: Optional[str] = None,
+) -> Tuple[Optional[Dict[str, Any]], str]:
+    """Thực hiện 1 lần token exchange. Trả về (token_data, error_msg)."""
+    token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+    payload: Dict[str, str] = {
+        "client_id": client_id.strip(),
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token.strip(),
+    }
+    if scope:
+        payload["scope"] = scope
+    try:
+        resp = _session.post(token_url, data=payload, timeout=30)
+        data = resp.json()
+    except Exception as exc:
+        return None, f"request_error: {exc}"
+
+    if data.get("access_token"):
+        return data, ""
+
+    err_desc = data.get("error_description", "")
+    err_code = data.get("error", "")
+    return None, err_desc or err_code or str(data)
 
 
 def _detect_api_family(scope: str, access_token: str) -> str:
@@ -235,11 +277,15 @@ def _message_detail_request_config(api_family: str, message_id: str) -> Tuple[st
 def exchange_refresh_token(
     refresh_token: str, client_id: str, tenant_id: str = "consumers"
 ) -> Tuple[bool, "TokenInfo | str"]:
-    """Exchange refresh_token với caching access token và global circuit breaker.
+    """Exchange refresh_token với multi-scope strategy, caching, circuit breaker.
 
-    - Cache access token, reuse cho đến khi gần hết hạn (tránh spam /token)
-    - Khi gặp AADSTS50196 → trip circuit breaker 90s toàn app
-    - Không retry POST /token (chỉ retry GET mail requests)
+    Strategy:
+    1. Cache hit → reuse
+    2. Exchange không scope (fast path cho token đã có Mail.Read)
+    3. Nếu token thiếu mail scope → exchange lại với Graph Mail.Read scope
+    4. Nếu thất bại → exchange lại với Outlook Mail.Read scope
+    5. Nếu tất cả scope thất bại → trả token gốc (IMAP fallback)
+    6. Nếu exchange không scope cũng fail → thử scoped exchange từ đầu
     """
     # 1. Kiểm tra cache trước
     cached = _cache_get(refresh_token, client_id)
@@ -254,32 +300,41 @@ def exchange_refresh_token(
             f"vui lòng chờ ~{secs}s trước khi thử lại."
         )
 
-    # 3. Thực hiện exchange
-    token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
-    payload = {
-        "client_id": client_id.strip(),
-        "grant_type": "refresh_token",
-        "refresh_token": refresh_token.strip(),
-    }
-    try:
-        resp = _session.post(token_url, data=payload, timeout=30)
-        data = resp.json()
-    except Exception as exc:
-        return False, f"request_error: {exc}"
+    # 3. Exchange không scope (nhanh, tương thích ngược)
+    data, err = _do_single_exchange(refresh_token, client_id, tenant_id)
 
-    # 4. Xử lý kết quả
-    access_token = data.get("access_token")
-    if access_token:
+    if data:
+        scope = data.get("scope", "")
+
+        if _has_mail_rest_scope(scope):
+            # Token đã có mail scope → dùng luôn (fast path)
+            token_info = _build_token_info(data, refresh_token, client_id, tenant_id)
+            _cache_put(refresh_token, client_id, token_info,
+                       int(data.get("expires_in", 3600)))
+            return True, token_info
+
+        # Token thiếu mail scope (VD: MSA token có IMAP/POP/SMTP)
+        # Thử exchange lại với scope cụ thể, dùng refresh token mới nếu bị rotate
+        new_rt = data.get("refresh_token") or refresh_token
+        for explicit_scope in (GRAPH_MAIL_READ_SCOPE, OUTLOOK_MAIL_READ_SCOPE):
+            data_s, _ = _do_single_exchange(
+                new_rt, client_id, tenant_id, scope=explicit_scope
+            )
+            if data_s:
+                token_info = _build_token_info(
+                    data_s, refresh_token, client_id, tenant_id
+                )
+                _cache_put(refresh_token, client_id, token_info,
+                           int(data_s.get("expires_in", 3600)))
+                return True, token_info
+
+        # Không scope nào thành công → trả token gốc (IMAP fallback sẽ xử lý)
         token_info = _build_token_info(data, refresh_token, client_id, tenant_id)
-        expires_in = int(data.get("expires_in", 3600))
-        _cache_put(refresh_token, client_id, token_info, expires_in)
+        _cache_put(refresh_token, client_id, token_info,
+                   int(data.get("expires_in", 3600)))
         return True, token_info
 
-    # 5. Xử lý lỗi
-    err_desc = data.get("error_description", "")
-    err_code = data.get("error", "")
-    err = err_desc or err_code or str(data)
-
+    # 4. Exchange không scope thất bại hoàn toàn
     if "50196" in err:
         _cb_trip()
         secs = _remaining_cooldown()
@@ -288,17 +343,31 @@ def exchange_refresh_token(
             f"Tất cả tài khoản sẽ được thử lại sau ~{secs}s."
         )
 
+    # 5. Thử exchange với scope cụ thể (khi no-scope hoàn toàn fail)
+    for explicit_scope in (GRAPH_MAIL_READ_SCOPE, OUTLOOK_MAIL_READ_SCOPE):
+        data_s, _ = _do_single_exchange(
+            refresh_token, client_id, tenant_id, scope=explicit_scope
+        )
+        if data_s:
+            token_info = _build_token_info(
+                data_s, refresh_token, client_id, tenant_id
+            )
+            _cache_put(refresh_token, client_id, token_info,
+                       int(data_s.get("expires_in", 3600)))
+            return True, token_info
+
     return False, f"token_error: {err}"
 
 
 def get_messages(
-    token_or_info: TokenInfo | str, limit: int = 10
+    token_or_info: TokenInfo | str, limit: int = 10, email_addr: str = ""
 ) -> Tuple[bool, List[Dict] | str]:
-    """Read messages, auto-detecting the right API family with a fallback retry.
+    """Read messages via Graph API, Outlook REST, hoặc IMAP XOAUTH2 fallback.
 
-    Order: preferred family first (from token scope hint), then the other one.
-    The first 401/403 is silently retried on the other API; any other status
-    code is returned immediately.
+    Strategy chain:
+    1. Preferred REST API (Graph hoặc Outlook tùy token scope)
+    2. Fallback REST API (API còn lại)
+    3. IMAP XOAUTH2 (nếu có email_addr và token có IMAP scope)
     """
     token_info = _normalize_token_info(token_or_info)
     headers = {
@@ -328,6 +397,20 @@ def get_messages(
 
         # Non-auth error (5xx, 400, …) — no point retrying with different API
         return _mail_request_failed(resp, family)
+
+    # Cả Graph lẫn Outlook REST đều fail → thử IMAP XOAUTH2
+    if email_addr and "imap" in token_info.get("scope", "").lower():
+        try:
+            from imap_mail_reader import read_messages_imap
+
+            ok, result = read_messages_imap(
+                token_info["access_token"], email_addr, limit=limit
+            )
+            if ok:
+                token_info["api_family"] = "imap"
+                return True, result
+        except Exception:
+            pass
 
     return False, "Token khong co quyen doc mail (da thu ca Graph va Outlook)"
 
@@ -379,7 +462,7 @@ def process_single_account(acc: Dict) -> Dict:
         return {"email": email, "status": "error", "error": token_or_err}
 
     token_info = token_or_err
-    ok_msgs, msgs_or_err = get_messages(token_info, limit=1)
+    ok_msgs, msgs_or_err = get_messages(token_info, limit=1, email_addr=email)
     if not ok_msgs:
         return {"email": email, "status": "error", "error": msgs_or_err}
 

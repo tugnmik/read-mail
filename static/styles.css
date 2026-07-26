@@ -683,6 +683,19 @@ body {
     border-radius: 12px;
 }
 
+.oauth2-header-tools {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.oauth2-action-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
 #oauth2-cred-input {
     width: 100%;
     min-height: 140px;
@@ -805,6 +818,37 @@ body {
     border-color: var(--accent);
 }
 
+.btn-copy-all {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    background: transparent;
+    color: var(--info);
+    border: 1px solid var(--info);
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all var(--transition);
+    white-space: nowrap;
+}
+
+.btn-copy-all:hover {
+    background: rgba(96, 165, 250, 0.1);
+}
+
+.btn-copy-all:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.btn-copy-all.copied {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
 /* ── Animations ──────────────────────────────────────────────────── */
 @keyframes fadeIn {
     from { opacity: 0; }
@@ -834,6 +878,18 @@ body {
     .section-header {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .action-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .oauth2-action-group {
+        width: 100%;
+        justify-content: flex-end;
+        flex-wrap: wrap;
     }
 
     .mail-table .col-from,
