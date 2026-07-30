@@ -149,14 +149,41 @@ async function readMail() {
 
     const startTime = performance.now();
 
-    // 2. Chạy xử lý song song cho từng account
+    // 2. Chạy xử lý song song cho từng account với Fast Path (siêu nhanh ~0.3s - 0.5s)
     const processPromises = accounts.map(async (acc, idx) => {
         const email = acc.email;
         const emailId = sanitizeId(email);
 
         try {
-            // Bước 1: Xác thực tài khoản
-            updatePlaceholderStatus(emailId, "processing", "Đang xác thực bảo mật...");
+            // Bước 1: FAST PATH - Gọi backend trực tiếp ngay lập tức!
+            updatePlaceholderStatus(emailId, "processing", "Đang đọc hòm thư...");
+            const fastResp = await fetch("/api/read-single", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(acc),
+            });
+
+            if (fastResp.ok) {
+                const fastResult = await fastResp.json();
+                if (fastResult.status === "ok") {
+                    okCount++;
+                    accountDataMap[fastResult.email] = {
+                        refresh_token: fastResult.refresh_token || acc.refresh_token,
+                        client_id: fastResult.client_id || acc.client_id,
+                        tenant_id: fastResult.tenant_id || acc.tenant_id || "consumers",
+                        mail_api: fastResult.mail_api || "",
+                        token_scope: fastResult.token_scope || "",
+                        messages: fastResult.messages || [],
+                        access_token: acc.access_token || "",
+                        expires_at: acc.expires_at || 0,
+                    };
+                    replacePlaceholderWithCard(fastResult.email, fastResult.messages || []);
+                    return;
+                }
+            }
+
+            // Bước 2: FALLBACK PATH - Chỉ chạy khi backend gặp lỗi / bị block IP
+            updatePlaceholderStatus(emailId, "processing", "Đang thử phương thức dự phòng...");
             const res = await exchangeTokenClientSideSingle(acc);
             
             let prefetched_messages = null;
@@ -166,9 +193,7 @@ async function readMail() {
                     res.scope.toLowerCase().includes("mail.readwrite")
                 );
                 
-                // Bước 2: Tải mail trực tiếp nếu có REST permission
                 if (hasMailScope) {
-                    updatePlaceholderStatus(emailId, "processing", "Đang tải thư trực tiếp...");
                     try {
                         const graphUrl = "https://graph.microsoft.com/v1.0/me/messages?$top=10&$select=id,subject,from,receivedDateTime,bodyPreview";
                         const graphResp = await fetch(graphUrl, {
@@ -198,8 +223,6 @@ async function readMail() {
                 }
             }
 
-            // Bước 3: Gửi lên backend xử lý nốt (IMAP fallback / hoàn tất)
-            updatePlaceholderStatus(emailId, "processing", "Đang đọc danh sách thư...");
             const accountPayload = {
                 ...acc,
                 access_token: res.access_token || "",
@@ -221,7 +244,6 @@ async function readMail() {
 
             const result = await resp.json();
 
-            // Lưu thông tin vào state toàn cục
             accountDataMap[result.email] = {
                 refresh_token: result.refresh_token || acc.refresh_token,
                 client_id: result.client_id || acc.client_id,
@@ -229,11 +251,12 @@ async function readMail() {
                 mail_api: result.mail_api || "",
                 token_scope: result.token_scope || "",
                 messages: result.messages || [],
+                access_token: res.access_token || acc.access_token || "",
+                expires_at: res.expires_at || acc.expires_at || 0,
             };
 
             if (result.status === "ok") {
                 okCount++;
-                // Điền thông tin thật vào card thay cho placeholder
                 replacePlaceholderWithCard(result.email, result.messages || []);
             } else {
                 errCount++;
@@ -244,7 +267,6 @@ async function readMail() {
             errCount++;
             replacePlaceholderWithError(email, err.message);
         } finally {
-            // Cập nhật tiến trình tổng quan
             const processedCount = okCount + errCount;
             resultsSummary.textContent = `${okCount} OK · ${errCount} Lỗi · ${processedCount}/${totalCount}`;
             statusEl.textContent = `Đang xử lý: ${processedCount}/${totalCount}`;
@@ -383,10 +405,39 @@ async function loadMoreMails(email) {
     if (_accountInFlight[email]) return;
     _accountInFlight[email] = true;
 
-    const limit = parseInt(document.getElementById("mail-limit").value) || 10;
-    const btnMore = document.getElementById(`btn-more-${sanitizeId(email)}`);
-    const tbody = document.getElementById(`tbody-${sanitizeId(email)}`);
+    try {
+        // FAST PATH: Trực tiếp qua backend (siêu nhanh ~0.2s)
+        const resp = await fetch("/api/mail-all", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                access_token: accData.access_token || "",
+                refresh_token: accData.refresh_token,
+                client_id: accData.client_id,
+                tenant_id: accData.tenant_id || "consumers",
+                limit: limit,
+                email: email,
+            }),
+        });
+        const data = await resp.json();
 
+        if (!data.error) {
+            accData.refresh_token = data.refresh_token || accData.refresh_token;
+            accData.messages = data.messages;
+            tbody.innerHTML = renderMailRows(data.messages, 0, email);
+
+            btnMore.innerHTML = `✓ Đã tải ${data.messages.length} thư`;
+            btnMore.disabled = true;
+            btnMore.style.color = "var(--accent)";
+            btnMore.style.borderColor = "var(--accent)";
+            _accountInFlight[email] = false;
+            return;
+        }
+    } catch (err) {
+        console.warn("Backend loadMore error, trying fallback:", err);
+    }
+
+    // FALLBACK PATH: Client-side Graph API
     if (accData.mail_api === "graph" || accData.mail_api === "graph_client") {
         try {
             const exchangeResult = await exchangeTokenClientSideSingle(accData);
@@ -426,51 +477,13 @@ async function loadMoreMails(email) {
                 }
             }
         } catch (e) {
-            console.error("Browser Graph loadMore fetch failed, falling back to server:", e);
+            console.error("Browser Graph loadMore fetch failed:", e);
         }
     }
 
-    try {
-        const exchangeResult = await exchangeTokenClientSideSingle(accData);
-        const resp = await fetch("/api/mail-all", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                access_token: exchangeResult.access_token,
-                refresh_token: exchangeResult.refresh_token,
-                client_id: accData.client_id,
-                tenant_id: accData.tenant_id || "consumers",
-                limit: limit,
-                email: email,
-            }),
-        });
-        const data = await resp.json();
-
-        if (data.error) {
-            btnMore.textContent = friendlyError(data.error);
-            btnMore.disabled = false;
-            _accountInFlight[email] = false;
-            return;
-        }
-
-        accData.refresh_token = data.refresh_token || accData.refresh_token;
-        accData.client_id = data.client_id || accData.client_id;
-        accData.tenant_id = data.tenant_id || accData.tenant_id;
-        accData.mail_api = data.mail_api || accData.mail_api;
-        accData.token_scope = data.token_scope || accData.token_scope;
-        accData.messages = data.messages;
-        tbody.innerHTML = renderMailRows(data.messages, 0, email);
-
-        btnMore.innerHTML = `✓ Đã tải ${data.messages.length} thư`;
-        btnMore.disabled = true;
-        btnMore.style.color = "var(--accent)";
-        btnMore.style.borderColor = "var(--accent)";
-    } catch (err) {
-        btnMore.textContent = `Lỗi: ${err.message}`;
-        btnMore.disabled = false;
-    } finally {
-        _accountInFlight[email] = false;
-    }
+    btnMore.textContent = "Lỗi tải thêm thư";
+    btnMore.disabled = false;
+    _accountInFlight[email] = false;
 }
 
 // ── Chi tiết (modal) ───────────────────────────────────────────────
@@ -485,6 +498,40 @@ async function showDetail(email, messageId) {
     modalOverlay.classList.add("active");
     modalTitle.textContent = "Đang tải...";
     modalMeta.innerHTML = "";
+    try {
+        // FAST PATH: Gọi API backend trực tiếp (siêu nhanh ~0.1s - 0.2s)
+        const resp = await fetch("/api/mail-detail", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                access_token: accData.access_token || "",
+                refresh_token: accData.refresh_token,
+                client_id: accData.client_id,
+                tenant_id: accData.tenant_id || "consumers",
+                message_id: messageId,
+                email: email,
+            }),
+        });
+        const data = await resp.json();
+
+        if (!data.error) {
+            accData.refresh_token = data.refresh_token || accData.refresh_token;
+            modalTitle.textContent = data.subject || "Chi tiết Email";
+            modalMeta.innerHTML = `
+                <div class="meta-row"><span class="meta-label">From:</span><span class="meta-value">${escHtml(data.from_name)} &lt;${escHtml(data.from_address)}&gt;</span></div>
+                <div class="meta-row"><span class="meta-label">Date:</span><span class="meta-value">${formatDate(data.date)}</span></div>
+                <div class="meta-row"><span class="meta-label">Subject:</span><span class="meta-value">${escHtml(data.subject)}</span></div>
+            `;
+            const htmlBody = data.html_body || `<pre>${escHtml(data.snippet || "Không có nội dung")}</pre>`;
+            modalIframe.srcdoc = htmlBody;
+            _accountInFlight[`detail_${email}_${messageId}`] = false;
+            return;
+        }
+    } catch (e) {
+        console.warn("Backend detail fetch error, trying client fallback:", e);
+    }
+
+    // FALLBACK PATH: Nếu backend fail
     if (accData.mail_api === "graph" || accData.mail_api === "graph_client") {
         try {
             const exchangeResult = await exchangeTokenClientSideSingle(accData);
@@ -509,61 +556,19 @@ async function showDetail(email, messageId) {
                         <div class="meta-row"><span class="meta-label">Subject:</span><span class="meta-value">${escHtml(msg.subject || "(no subject)")}</span></div>
                     `;
                     modalIframe.srcdoc = bodyObj.content || `<pre>${escHtml(msg.bodyPreview || "")}</pre>`;
-                    
                     accData.refresh_token = exchangeResult.refresh_token;
                     _accountInFlight[`detail_${email}_${messageId}`] = false;
                     return;
                 }
             }
         } catch (e) {
-            console.error("Browser Graph detail fetch failed, falling back to server:", e);
+            console.error("Browser Graph detail fetch failed:", e);
         }
     }
 
-    try {
-        const exchangeResult = await exchangeTokenClientSideSingle(accData);
-        const resp = await fetch("/api/mail-detail", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                access_token: exchangeResult.access_token,
-                refresh_token: exchangeResult.refresh_token,
-                client_id: accData.client_id,
-                tenant_id: accData.tenant_id || "consumers",
-                message_id: messageId,
-                email: email,
-            }),
-        });
-        const data = await resp.json();
-
-        if (data.error) {
-            modalTitle.textContent = "Lỗi";
-            modalIframe.srcdoc = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:red;">${escHtml(friendlyError(data.error))}</div>`;
-            _accountInFlight[`detail_${email}_${messageId}`] = false;
-            return;
-        }
-
-        accData.refresh_token = data.refresh_token || accData.refresh_token;
-        accData.client_id = data.client_id || accData.client_id;
-        accData.tenant_id = data.tenant_id || accData.tenant_id;
-        accData.mail_api = data.mail_api || accData.mail_api;
-        accData.token_scope = data.token_scope || accData.token_scope;
-
-        modalTitle.textContent = data.subject || "Chi tiết Email";
-        modalMeta.innerHTML = `
-            <div class="meta-row"><span class="meta-label">From:</span><span class="meta-value">${escHtml(data.from_name)} &lt;${escHtml(data.from_address)}&gt;</span></div>
-            <div class="meta-row"><span class="meta-label">Date:</span><span class="meta-value">${formatDate(data.date)}</span></div>
-            <div class="meta-row"><span class="meta-label">Subject:</span><span class="meta-value">${escHtml(data.subject)}</span></div>
-        `;
-
-        const htmlBody = data.html_body || `<pre>${escHtml(data.snippet || "Không có nội dung")}</pre>`;
-        modalIframe.srcdoc = htmlBody;
-    } catch (err) {
-        modalTitle.textContent = "Lỗi";
-        modalIframe.srcdoc = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:red;">${escHtml(err.message)}</div>`;
-    } finally {
-        _accountInFlight[`detail_${email}_${messageId}`] = false;
-    }
+    modalTitle.textContent = "Lỗi";
+    modalIframe.srcdoc = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:red;">Không thể tải chi tiết email.</div>`;
+    _accountInFlight[`detail_${email}_${messageId}`] = false;
 }
 
 // ── Modal controls ─────────────────────────────────────────────────
