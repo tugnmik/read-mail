@@ -24,7 +24,6 @@ from graph_api_service import (
     get_messages,
     get_message_detail,
     process_single_account,
-    detect_tenant,
 )
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
@@ -156,6 +155,24 @@ def api_read_mail_stream():
     )
 
 
+# ── API: Doc mail cho 1 account don le ──────────────────────────────
+@app.route("/api/read-single", methods=["POST"])
+def api_read_single():
+    """Xu ly doc mail cho mot tai khoan don le."""
+    acc = request.get_json(silent=True) or {}
+    if not acc:
+        return jsonify({"error": "Thieu thong tin account"}), 400
+    try:
+        result = process_single_account(acc)
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({
+            "email": acc.get("email", ""),
+            "status": "error",
+            "error": str(exc)
+        }), 500
+
+
 # ── API: Doc mail (sync fallback, giu tuong thich) ─────────────────
 @app.route("/api/read-mail", methods=["POST"])
 def api_read_mail():
@@ -196,9 +213,9 @@ def api_mail_all():
     access_token = body.get("access_token", "").strip()
     refresh_token = body.get("refresh_token", "").strip()
     client_id = body.get("client_id", "").strip()
-    email = body.get("email", "").strip()
-    tenant_id = body.get("tenant_id", "").strip() or detect_tenant(email)
+    tenant_id = body.get("tenant_id", "consumers").strip() or "consumers"
     limit = body.get("limit", 10)
+    email = body.get("email", "").strip()
 
     if not all([refresh_token, client_id]) and not access_token:
         return jsonify({"error": "Thieu refresh_token hoac client_id"}), 400
@@ -241,9 +258,9 @@ def api_mail_detail():
     access_token = body.get("access_token", "").strip()
     refresh_token = body.get("refresh_token", "").strip()
     client_id = body.get("client_id", "").strip()
-    email = body.get("email", "").strip()
-    tenant_id = body.get("tenant_id", "").strip() or detect_tenant(email)
+    tenant_id = body.get("tenant_id", "consumers").strip() or "consumers"
     message_id = body.get("message_id", "").strip()
+    email = body.get("email", "").strip()
 
     if (not all([refresh_token, client_id]) and not access_token) or not message_id:
         return jsonify({"error": "Thieu thong tin"}), 400

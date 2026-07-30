@@ -92,25 +92,18 @@ function parseAccounts() {
         if (!trimmed) continue;
         const parts = trimmed.split("|");
         if (parts.length < 4) continue;
-
-        const email = parts[0].trim();
-        const domain = email.split("@")[1] || "";
-        const personalDomains = ["outlook.", "hotmail.", "live.", "msn.", "windowslive."];
-        const isPersonal = personalDomains.some(d => domain.toLowerCase().startsWith(d));
-        const autoTenant = isPersonal ? "consumers" : "organizations";
-
         accounts.push({
-            email: email,
+            email: parts[0].trim(),
             password: parts[1].trim(),
             refresh_token: parts[2].trim(),
             client_id: parts[3].trim(),
-            tenant_id: (parts[4] || "").trim() || autoTenant,
+            tenant_id: (parts[4] || "").trim() || "consumers",
         });
     }
     return accounts;
 }
 
-// ── Main: Đọc hòm thư (STREAMING) ─────────────────────────────────
+// ── Main: Đọc hòm thư (CONCURRENT & RESPONSIVE) ───────────────────
 async function readMail() {
     // Debounce: tránh spam click
     const now = Date.now();
@@ -123,11 +116,17 @@ async function readMail() {
         return;
     }
 
-    // Ưu tiên refresh_token mới nhất đã được rotate từ lần đọc trước
+    // Ưu tiên refresh_token, access_token mới nhất đã được lưu từ lần đọc trước
     accounts = accounts.map((acc) => {
         const stored = accountDataMap[acc.email];
-        if (stored && stored.refresh_token) {
-            return { ...acc, refresh_token: stored.refresh_token };
+        if (stored) {
+            return {
+                ...acc,
+                refresh_token: stored.refresh_token || acc.refresh_token,
+                access_token: stored.access_token || "",
+                expires_at: stored.expires_at || 0,
+                scope: stored.token_scope || ""
+            };
         }
         return acc;
     });
@@ -141,174 +140,167 @@ async function readMail() {
     resultsContainer.innerHTML = "";
     resultsSection.style.display = "block";
     resultsSummary.textContent = `0/${totalCount} đang xử lý...`;
-    statusEl.textContent = `Đang xác thực tài khoản qua Microsoft...`;
+    statusEl.textContent = `Đang xử lý ${totalCount} tài khoản song song...`;
 
-    // Exchange tokens on the client side in parallel to avoid Render IP block
-    const exchangePromises = accounts.map(async (acc) => {
-        const res = await exchangeTokenClientSideSingle(acc);
-        if (res.access_token) {
-            let prefetched_messages = null;
-            const hasMailScope = res.scope && (
-                res.scope.toLowerCase().includes("mail.read") ||
-                res.scope.toLowerCase().includes("mail.readwrite")
-            );
-            if (hasMailScope) {
-                try {
-                    const graphUrl = "https://graph.microsoft.com/v1.0/me/messages?$top=10&$select=id,subject,from,receivedDateTime,bodyPreview";
-                    const graphResp = await fetch(graphUrl, {
-                        headers: {
-                            "Authorization": `Bearer ${res.access_token}`,
-                            "Content-Type": "application/json"
-                        }
-                    });
-                    if (graphResp.ok) {
-                        const graphData = await graphResp.json();
-                        prefetched_messages = (graphData.value || []).map(msg => {
-                            const fromObj = msg.from || {};
-                            const emailAddressObj = fromObj.emailAddress || {};
-                            return {
-                                id: msg.id,
-                                subject: msg.subject || "(no subject)",
-                                from_name: emailAddressObj.name || "",
-                                from_address: emailAddressObj.address || "",
-                                date: msg.receivedDateTime || "",
-                                snippet: msg.bodyPreview || ""
-                            };
-                        });
-                    }
-                } catch (e) {
-                    console.error(`Browser Graph API fetch failed for ${acc.email}:`, e);
-                }
-            }
-            return {
-                ...acc,
-                access_token: res.access_token,
-                refresh_token: res.refresh_token,
-                scope: res.scope,
-                prefetched_messages: prefetched_messages
-            };
-        }
-        return acc;
-    });
-    accounts = await Promise.all(exchangePromises);
-
-    statusEl.textContent = `Đang đọc ${totalCount} account song song...`;
-
-    // Build a lookup map for accounts by index
-    const accountsByIdx = {};
+    // 1. Tạo placeholder ngay lập tức cho tất cả các account để có giao diện trực quan
     accounts.forEach((acc, idx) => {
-        accountsByIdx[idx] = acc;
+        createPlaceholderCard(acc.email, idx);
     });
 
     const startTime = performance.now();
 
-    try {
-        const resp = await fetch("/api/read-mail-stream", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ accounts }),
-        });
+    // 2. Chạy xử lý song song cho từng account
+    const processPromises = accounts.map(async (acc, idx) => {
+        const email = acc.email;
+        const emailId = sanitizeId(email);
 
-        if (!resp.ok) {
-            const errData = await resp.json();
-            statusEl.textContent = `Lỗi: ${errData.error || resp.statusText}`;
-            btnRead.disabled = false;
-            return;
-        }
-
-        // Read NDJSON stream line by line
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-
-            // Process complete lines
-            const lines = buffer.split("\n");
-            buffer = lines.pop(); // Keep incomplete last line in buffer
-
-            for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed) continue;
-
-                try {
-                    const result = JSON.parse(trimmed);
-                    const idx = result._idx;
-                    const acc = accountsByIdx[idx] || {};
-
-                    // Save to state
-                    accountDataMap[result.email] = {
-                        refresh_token: result.refresh_token || acc.refresh_token,
-                        client_id: result.client_id || acc.client_id,
-                        tenant_id: result.tenant_id || acc.tenant_id || "consumers",
-                        mail_api: result.mail_api || "",
-                        token_scope: result.token_scope || "",
-                        messages: result.messages || [],
-                    };
-
-                    // Render immediately
-                    if (result.status === "ok") {
-                        okCount++;
-                        renderAccountCard(result.email, result.messages || []);
-                    } else {
-                        errCount++;
-                        renderAccountError(result.email, result.error);
+        try {
+            // Bước 1: Xác thực tài khoản
+            updatePlaceholderStatus(emailId, "processing", "Đang xác thực bảo mật...");
+            const res = await exchangeTokenClientSideSingle(acc);
+            
+            let prefetched_messages = null;
+            if (res.access_token) {
+                const hasMailScope = res.scope && (
+                    res.scope.toLowerCase().includes("mail.read") ||
+                    res.scope.toLowerCase().includes("mail.readwrite")
+                );
+                
+                // Bước 2: Tải mail trực tiếp nếu có REST permission
+                if (hasMailScope) {
+                    updatePlaceholderStatus(emailId, "processing", "Đang tải thư trực tiếp...");
+                    try {
+                        const graphUrl = "https://graph.microsoft.com/v1.0/me/messages?$top=10&$select=id,subject,from,receivedDateTime,bodyPreview";
+                        const graphResp = await fetch(graphUrl, {
+                            headers: {
+                                "Authorization": `Bearer ${res.access_token}`,
+                                "Content-Type": "application/json"
+                            }
+                        });
+                        if (graphResp.ok) {
+                            const graphData = await graphResp.json();
+                            prefetched_messages = (graphData.value || []).map(msg => {
+                                const fromObj = msg.from || {};
+                                const emailAddressObj = fromObj.emailAddress || {};
+                                return {
+                                    id: msg.id,
+                                    subject: msg.subject || "(no subject)",
+                                    from_name: emailAddressObj.name || "",
+                                    from_address: emailAddressObj.address || "",
+                                    date: msg.receivedDateTime || "",
+                                    snippet: msg.bodyPreview || ""
+                                };
+                            });
+                        }
+                    } catch (e) {
+                        console.error(`Browser Graph API fetch failed for ${email}:`, e);
                     }
-
-                    // Update progress
-                    const progress = result._progress || `${okCount + errCount}/${totalCount}`;
-                    resultsSummary.textContent = `${okCount} OK · ${errCount} Lỗi · ${progress}`;
-                    statusEl.textContent = `Đang xử lý: ${progress}`;
-                } catch (parseErr) {
-                    console.warn("NDJSON parse error:", parseErr, line);
                 }
             }
+
+            // Bước 3: Gửi lên backend xử lý nốt (IMAP fallback / hoàn tất)
+            updatePlaceholderStatus(emailId, "processing", "Đang đọc danh sách thư...");
+            const accountPayload = {
+                ...acc,
+                access_token: res.access_token || "",
+                refresh_token: res.refresh_token || acc.refresh_token,
+                scope: res.scope || "",
+                prefetched_messages: prefetched_messages
+            };
+
+            const resp = await fetch("/api/read-single", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(accountPayload),
+            });
+
+            if (!resp.ok) {
+                const errData = await resp.json();
+                throw new Error(errData.error || resp.statusText);
+            }
+
+            const result = await resp.json();
+
+            // Lưu thông tin vào state toàn cục
+            accountDataMap[result.email] = {
+                refresh_token: result.refresh_token || acc.refresh_token,
+                client_id: result.client_id || acc.client_id,
+                tenant_id: result.tenant_id || acc.tenant_id || "consumers",
+                mail_api: result.mail_api || "",
+                token_scope: result.token_scope || "",
+                messages: result.messages || [],
+            };
+
+            if (result.status === "ok") {
+                okCount++;
+                // Điền thông tin thật vào card thay cho placeholder
+                replacePlaceholderWithCard(result.email, result.messages || []);
+            } else {
+                errCount++;
+                replacePlaceholderWithError(result.email, result.error);
+            }
+
+        } catch (err) {
+            errCount++;
+            replacePlaceholderWithError(email, err.message);
+        } finally {
+            // Cập nhật tiến trình tổng quan
+            const processedCount = okCount + errCount;
+            resultsSummary.textContent = `${okCount} OK · ${errCount} Lỗi · ${processedCount}/${totalCount}`;
+            statusEl.textContent = `Đang xử lý: ${processedCount}/${totalCount}`;
         }
+    });
 
-        // Process any remaining buffer
-        if (buffer.trim()) {
-            try {
-                const result = JSON.parse(buffer.trim());
-                const idx = result._idx;
-                const acc = accountsByIdx[idx] || {};
-                accountDataMap[result.email] = {
-                    refresh_token: result.refresh_token || acc.refresh_token,
-                    client_id: result.client_id || acc.client_id,
-                    tenant_id: result.tenant_id || acc.tenant_id || "consumers",
-                    mail_api: result.mail_api || "",
-                    token_scope: result.token_scope || "",
-                    messages: result.messages || [],
-                };
-                if (result.status === "ok") {
-                    okCount++;
-                    renderAccountCard(result.email, result.messages || []);
-                } else {
-                    errCount++;
-                    renderAccountError(result.email, result.error);
-                }
-            } catch {}
-        }
+    // Chờ tất cả hoàn thành để cập nhật tổng kết
+    await Promise.all(processPromises);
 
-        const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
-        resultsSummary.textContent = `${okCount} OK · ${errCount} Lỗi · Tổng ${totalCount} · ${elapsed}s`;
-        statusEl.textContent = `Hoàn thành: ${okCount}/${totalCount} account trong ${elapsed}s`;
-    } catch (err) {
-        statusEl.textContent = `Lỗi kết nối: ${err.message}`;
-    }
-
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+    resultsSummary.textContent = `${okCount} OK · ${errCount} Lỗi · Tổng ${totalCount} · ${elapsed}s`;
+    statusEl.textContent = `Hoàn thành: ${okCount}/${totalCount} account trong ${elapsed}s`;
     btnRead.disabled = false;
 }
 
 // ── Render functions ───────────────────────────────────────────────
-function renderAccountCard(email, messages) {
+function createPlaceholderCard(email, idx) {
     const card = document.createElement("div");
     card.className = "account-card";
     card.id = `card-${sanitizeId(email)}`;
     card.style.animation = "fadeSlideIn 0.3s ease";
+    card.innerHTML = `
+        <div class="account-card-header">
+            <span class="account-email">${escHtml(email)}</span>
+            <span class="account-status waiting" id="status-badge-${sanitizeId(email)}" style="padding:3px 10px; border-radius:12px; font-size:0.78rem; font-weight:500; background:rgba(93,122,146,0.1); color:var(--text-muted); border:1px solid var(--border-color);">
+                Đang chờ...
+            </span>
+        </div>
+        <div class="account-placeholder-body" id="body-${sanitizeId(email)}" style="padding:24px; text-align:center; color:var(--text-muted); font-size:0.85rem; font-family:sans-serif;">
+            <div class="spinner-small" style="display:inline-block; margin-right:8px; vertical-align:middle;"></div>
+            Đang xếp hàng...
+        </div>
+    `;
+    resultsContainer.appendChild(card);
+}
+
+function updatePlaceholderStatus(emailId, state, text) {
+    const badge = document.getElementById(`status-badge-${emailId}`);
+    const body = document.getElementById(`body-${emailId}`);
+    if (!badge || !body) return;
+
+    const badgeBase = "padding:3px 10px; border-radius:12px; font-size:0.78rem; font-weight:500;";
+
+    if (state === "processing") {
+        badge.style.cssText = badgeBase + "background:rgba(251,191,36,0.1); color:var(--warning); border:1px solid rgba(251,191,36,0.25);";
+        badge.textContent = "⏳ Đang chạy";
+        body.innerHTML = `
+            <div class="spinner-small" style="display:inline-block; margin-right:8px; vertical-align:middle;"></div>
+            ${escHtml(text)}
+        `;
+    }
+}
+
+function replacePlaceholderWithCard(email, messages) {
+    const card = document.getElementById(`card-${sanitizeId(email)}`);
+    if (!card) return;
 
     card.innerHTML = `
         <div class="account-card-header">
@@ -336,14 +328,11 @@ function renderAccountCard(email, messages) {
             </button>
         </div>
     `;
-
-    resultsContainer.appendChild(card);
 }
 
-function renderAccountError(email, error) {
-    const card = document.createElement("div");
-    card.className = "account-card";
-    card.style.animation = "fadeSlideIn 0.3s ease";
+function replacePlaceholderWithError(email, error) {
+    const card = document.getElementById(`card-${sanitizeId(email)}`);
+    if (!card) return;
 
     card.innerHTML = `
         <div class="account-card-header">
@@ -352,8 +341,6 @@ function renderAccountError(email, error) {
         </div>
         <div class="account-error-msg">${escHtml(error)}</div>
     `;
-
-    resultsContainer.appendChild(card);
 }
 
 function renderMailRows(messages, startIdx, email) {
@@ -742,6 +729,16 @@ function copyOAuth2(btn, idx) {
 }
 
 async function exchangeTokenClientSideSingle(acc) {
+    // 1. Kiểm tra cache client-side trước (nếu còn hạn > 2 phút)
+    if (acc.access_token && acc.expires_at && (Date.now() < acc.expires_at - 120000)) {
+        return {
+            access_token: acc.access_token,
+            refresh_token: acc.refresh_token,
+            scope: acc.scope || "",
+            expires_at: acc.expires_at
+        };
+    }
+
     try {
         const url = `https://login.microsoftonline.com/${acc.tenant_id || "consumers"}/oauth2/v2.0/token`;
         let payload = new URLSearchParams({
@@ -758,10 +755,20 @@ async function exchangeTokenClientSideSingle(acc) {
         let data = await resp.json();
 
         if (data.access_token) {
+            const expires_at = Date.now() + (data.expires_in || 3600) * 1000;
+            // Lưu vào global state nếu có
+            const stored = accountDataMap[acc.email];
+            if (stored) {
+                stored.access_token = data.access_token;
+                stored.expires_at = expires_at;
+                stored.refresh_token = data.refresh_token || acc.refresh_token;
+                stored.token_scope = data.scope || "";
+            }
             return {
                 access_token: data.access_token,
                 refresh_token: data.refresh_token || acc.refresh_token,
-                scope: data.scope || ""
+                scope: data.scope || "",
+                expires_at: expires_at
             };
         }
 
@@ -774,10 +781,19 @@ async function exchangeTokenClientSideSingle(acc) {
         });
         data = await resp.json();
         if (data.access_token) {
+            const expires_at = Date.now() + (data.expires_in || 3600) * 1000;
+            const stored = accountDataMap[acc.email];
+            if (stored) {
+                stored.access_token = data.access_token;
+                stored.expires_at = expires_at;
+                stored.refresh_token = data.refresh_token || acc.refresh_token;
+                stored.token_scope = data.scope || "";
+            }
             return {
                 access_token: data.access_token,
                 refresh_token: data.refresh_token || acc.refresh_token,
-                scope: data.scope || ""
+                scope: data.scope || "",
+                expires_at: expires_at
             };
         }
     } catch (e) {
