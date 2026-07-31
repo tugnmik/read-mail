@@ -612,7 +612,29 @@ function sanitizeId(str) {
 }
 
 // ── Page navigation ─────────────────────────────────────────────
+window._supportsOAuth2Get = true;
+
+document.addEventListener("DOMContentLoaded", async () => {
+    try {
+        const resp = await fetch("/api/config");
+        if (resp.ok) {
+            const cfg = await resp.json();
+            window._supportsOAuth2Get = cfg.supports_oauth2_get;
+            if (cfg.supports_oauth2_get === false) {
+                const navOAuth2 = document.getElementById("nav-oauth2");
+                if (navOAuth2) {
+                    navOAuth2.style.display = "none";
+                }
+            }
+        }
+    } catch (e) {}
+});
+
 function switchPage(page) {
+    if (page === "oauth2" && window._supportsOAuth2Get === false) {
+        alert("Tính năng Get OAuth2 không khả dụng trên Vercel deployment.");
+        return;
+    }
     document.getElementById("mail-page").style.display   = page === "mail"   ? "" : "none";
     document.getElementById("oauth2-page").style.display = page === "oauth2" ? "" : "none";
     document.getElementById("nav-mail").classList.toggle("active",   page === "mail");

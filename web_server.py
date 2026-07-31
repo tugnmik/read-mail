@@ -103,6 +103,26 @@ def docs():
     return send_from_directory("static", "api-docs.html")
 
 
+# ── API: Config / Capabilities ──────────────────────────────────────
+@app.route("/api/config", methods=["GET"])
+def api_config():
+    """Tra ve cau hinh server va cac tinh nang duoc ho tro."""
+    is_vercel = bool(os.environ.get("VERCEL"))
+    playwright_supported = False
+    if not is_vercel:
+        try:
+            import playwright
+            playwright_supported = True
+        except ImportError:
+            playwright_supported = False
+
+    return jsonify({
+        "is_vercel": is_vercel,
+        "playwright_supported": playwright_supported,
+        "supports_oauth2_get": playwright_supported,
+    })
+
+
 # ── API: Doc mail song song + stream ket qua (NDJSON) ──────────────
 @app.route("/api/read-mail-stream", methods=["POST"])
 def api_read_mail_stream():
@@ -573,6 +593,9 @@ def _stream_oauth2_batch(tasks, requested_workers=None):
 # API: Lay refresh_token tu nhieu email + password (NDJSON stream)
 @app.route("/api/get-token-stream", methods=["POST"])
 def api_get_token_stream():
+    if os.environ.get("VERCEL"):
+        return jsonify({"error": "Tính năng Get OAuth2 không hỗ trợ trên Vercel deployment"}), 501
+
     body = request.get_json(silent=True) or {}
     raw_accounts = body.get("accounts", [])
     requested_workers = body.get("workers")
@@ -616,6 +639,9 @@ def api_get_token():
     Lay refresh_token cho Hotmail/Outlook.com personal tu email + password.
     Yeu cau Playwright duoc cai tren server.
     """
+    if os.environ.get("VERCEL"):
+        return jsonify({"error": "Tính năng Get OAuth2 không hỗ trợ trên Vercel deployment"}), 501
+
     body = request.get_json(silent=True) or {}
     email    = body.get("email", "").strip()
     password = body.get("password", "").strip()
@@ -645,7 +671,8 @@ def api_get_token():
 
 
 # ── Main ────────────────────────────────────────────────────────────
-start_keep_alive()
+if not os.environ.get("VERCEL"):
+    start_keep_alive()
 
 
 if __name__ == "__main__":
