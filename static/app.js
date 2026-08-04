@@ -405,6 +405,15 @@ async function loadMoreMails(email) {
     if (_accountInFlight[email]) return;
     _accountInFlight[email] = true;
 
+    const limit = parseInt(document.getElementById("mail-limit").value) || 10;
+    const btnMore = document.getElementById(`btn-more-${sanitizeId(email)}`);
+    const tbody = document.getElementById(`tbody-${sanitizeId(email)}`);
+
+    if (btnMore) {
+        btnMore.disabled = true;
+        btnMore.innerHTML = `<div class="spinner-small" style="display:inline-block; margin-right:8px; vertical-align:middle;"></div> Đang tải...`;
+    }
+
     try {
         // FAST PATH: Trực tiếp qua backend (siêu nhanh ~0.2s)
         const resp = await fetch("/api/mail-all", {
@@ -424,12 +433,16 @@ async function loadMoreMails(email) {
         if (!data.error) {
             accData.refresh_token = data.refresh_token || accData.refresh_token;
             accData.messages = data.messages;
-            tbody.innerHTML = renderMailRows(data.messages, 0, email);
+            if (tbody) {
+                tbody.innerHTML = renderMailRows(data.messages, 0, email);
+            }
 
-            btnMore.innerHTML = `✓ Đã tải ${data.messages.length} thư`;
-            btnMore.disabled = true;
-            btnMore.style.color = "var(--accent)";
-            btnMore.style.borderColor = "var(--accent)";
+            if (btnMore) {
+                btnMore.innerHTML = `✓ Đã tải ${data.messages.length} thư`;
+                btnMore.disabled = true;
+                btnMore.style.color = "var(--accent)";
+                btnMore.style.borderColor = "var(--accent)";
+            }
             _accountInFlight[email] = false;
             return;
         }
@@ -466,12 +479,16 @@ async function loadMoreMails(email) {
                     
                     accData.refresh_token = exchangeResult.refresh_token;
                     accData.messages = messages;
-                    tbody.innerHTML = renderMailRows(messages, 0, email);
+                    if (tbody) {
+                        tbody.innerHTML = renderMailRows(messages, 0, email);
+                    }
 
-                    btnMore.innerHTML = `✓ Đã tải ${messages.length} thư`;
-                    btnMore.disabled = true;
-                    btnMore.style.color = "var(--accent)";
-                    btnMore.style.borderColor = "var(--accent)";
+                    if (btnMore) {
+                        btnMore.innerHTML = `✓ Đã tải ${messages.length} thư`;
+                        btnMore.disabled = true;
+                        btnMore.style.color = "var(--accent)";
+                        btnMore.style.borderColor = "var(--accent)";
+                    }
                     _accountInFlight[email] = false;
                     return;
                 }
@@ -481,8 +498,10 @@ async function loadMoreMails(email) {
         }
     }
 
-    btnMore.textContent = "Lỗi tải thêm thư";
-    btnMore.disabled = false;
+    if (btnMore) {
+        btnMore.textContent = "Lỗi tải thêm thư";
+        btnMore.disabled = false;
+    }
     _accountInFlight[email] = false;
 }
 
