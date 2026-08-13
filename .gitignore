@@ -1,2 +1,29 @@
-.vercel
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Log files
+*.log
+debug.log
+
+# Local environment/tokens
 .env*.local
+_last_token.txt
+_debug*.py
+_verify*.py
+claude to check.txt
+
+# Deployments & system files
+.vercel/
+.agents/
+.DS_Store
+Thumbs.db
+temp_deploy/

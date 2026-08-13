@@ -601,37 +601,6 @@ def get_token_from_credentials(
     Return {refresh_token, client_id, scope, tenant_id, attempts} on success.
     Return {error, error_code, attempts} on failure.
     """
-    # 1. Tự động kiểm tra nếu là tài khoản Edu/Organizational hoặc thử ROPC trước
-    # Điều này giúp xử lý tức thì tài khoản Edu không cần qua Playwright (tránh bị kẹt ở consumers tenant)
-    domain = email.split("@")[-1].lower() if "@" in email else ""
-    personal_domains = ["outlook.", "hotmail.", "live.", "msn.", "windowslive."]
-    is_personal = any(domain.startswith(d) for d in personal_domains)
-
-    if not is_personal or ".edu" in domain:
-        # Thử lấy token qua ROPC (password grant) với client ID của Office 365
-        office365_cid = "d3590ed6-52b3-4102-aeff-aad2292ab01c"
-        ropc_url = "https://login.microsoftonline.com/organizations/oauth2/v2.0/token"
-        payload = {
-            "client_id": office365_cid,
-            "grant_type": "password",
-            "username": email,
-            "password": password,
-            "scope": "https://graph.microsoft.com/.default",
-        }
-        try:
-            resp = requests.post(ropc_url, data=payload, timeout=20)
-            data = resp.json()
-            if "access_token" in data and "refresh_token" in data:
-                return {
-                    "refresh_token": data["refresh_token"],
-                    "client_id": office365_cid,
-                    "scope": data.get("scope", ""),
-                    "tenant_id": "organizations",
-                    "attempts": 1,
-                }
-        except Exception:
-            pass
-
     if browser is not None:
         return _get_token_with_browser(browser, email, password, max_retries=max_retries)
 
