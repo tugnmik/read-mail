@@ -121,6 +121,57 @@ body {
     background: var(--accent-dim);
 }
 
+/* ── GitHub Star Button ──────────────────────────────────────────── */
+.nav-github-star {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 14px;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #0f1923;
+    text-decoration: none;
+    background: linear-gradient(135deg, #fde047 0%, #f59e0b 100%);
+    border: 1px solid #f59e0b;
+    box-shadow: 0 0 0 0 rgba(253, 224, 71, 0.4), 0 2px 8px rgba(245, 158, 11, 0.35);
+    letter-spacing: 0.01em;
+    transition: all 0.2s ease;
+    margin-left: 8px;
+    position: relative;
+    overflow: hidden;
+}
+
+.nav-github-star::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.25) 0%, transparent 60%);
+    pointer-events: none;
+}
+
+.nav-github-star:hover {
+    color: #0f1923;
+    background: linear-gradient(135deg, #fef08a 0%, #fbbf24 100%);
+    box-shadow: 0 0 0 3px rgba(253, 224, 71, 0.3), 0 4px 16px rgba(245, 158, 11, 0.5);
+    transform: translateY(-1px);
+}
+
+.nav-github-star:active {
+    transform: translateY(0);
+    box-shadow: 0 0 0 2px rgba(253, 224, 71, 0.3), 0 2px 8px rgba(245, 158, 11, 0.35);
+}
+
+.nav-github-star .star-icon {
+    animation: star-pulse 2.5s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+@keyframes star-pulse {
+    0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    50% { transform: scale(1.2) rotate(10deg); opacity: 0.85; }
+}
+
 /* ── Main ────────────────────────────────────────────────────────── */
 #app-main {
     max-width: 1400px;
