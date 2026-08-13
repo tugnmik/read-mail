@@ -1,5 +1,9 @@
 # Outlook & Hotmail Multi-Account Mail Reader
 
+[![Live Demo](https://img.shields.io/badge/Demo-Live-brightgreen?style=flat-square&logo=vercel&logoColor=white)](https://web-mail-reader.vercel.app)
+![Python Version](https://img.shields.io/badge/Python-3.8+-3776AB?style=flat-square&logo=python&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+
 A lightweight web application for fetching and reading inboxes of multiple Outlook/Hotmail accounts concurrently. It utilizes Microsoft Graph API and Outlook Rest API via OAuth2 Refresh Tokens.
 
 This project is optimized for performance, featuring parallel execution, real-time streaming, and resilient fallback mechanisms.
