@@ -20,13 +20,13 @@ const _accountInFlight = {};
 let _lastReadAt = 0;
 const _READ_DEBOUNCE_MS = 1000;
 
-// Chuyển lỗi kỹ thuật thành thông báo tiếng Việt thân thiện
+// Chuyển lỗi kỹ thuật thành thông báo thân thiện (i18n)
 function friendlyError(msg) {
     if (!msg) return msg;
     if (/50196|LoopDetected|cooldown|loop/i.test(msg)) {
         const match = msg.match(/(\d+)s/);
         const secs = match ? match[1] : "60";
-        return `⏳ Microsoft phát hiện quá nhiều yêu cầu liên tiếp. Vui lòng chờ ~${secs}s rồi thử lại.`;
+        return t('friendly.loop', { s: secs });
     }
     return msg;
 }
@@ -67,7 +67,7 @@ document.addEventListener("keydown", (e) => {
 
 function updateOAuth2CredLineCount() {
     const lines = oauth2CredInput.value.trim().split("\n").filter((l) => l.trim());
-    oauth2CredLineCount.textContent = `${lines.length} dòng`;
+    oauth2CredLineCount.textContent = t('line.count', { n: lines.length });
 }
 
 oauth2CredInput.addEventListener("input", updateOAuth2CredLineCount);
@@ -78,7 +78,7 @@ btnClearOAuth2.addEventListener("click", () => {
 
 function updateLineCount() {
     const lines = inputEl.value.trim().split("\n").filter((l) => l.trim());
-    lineCountEl.textContent = `${lines.length} dòng`;
+    lineCountEl.textContent = t('line.count', { n: lines.length });
 }
 
 // ── Parse input ────────────────────────────────────────────────────
@@ -112,7 +112,7 @@ async function readMail() {
 
     let accounts = parseAccounts();
     if (accounts.length === 0) {
-        alert("Chưa nhập dữ liệu hoặc sai format!");
+        alert(t('alert.no.data'));
         return;
     }
 
@@ -139,8 +139,8 @@ async function readMail() {
     btnRead.disabled = true;
     resultsContainer.innerHTML = "";
     resultsSection.style.display = "block";
-    resultsSummary.textContent = `0/${totalCount} đang xử lý...`;
-    statusEl.textContent = `Đang xử lý ${totalCount} tài khoản song song...`;
+    resultsSummary.textContent = t('summary.progress', { total: totalCount });
+    statusEl.textContent = t('status.processing', { n: totalCount });
 
     // 1. Tạo placeholder ngay lập tức cho tất cả các account để có giao diện trực quan
     accounts.forEach((acc, idx) => {
@@ -156,7 +156,7 @@ async function readMail() {
 
         try {
             // Bước 1: FAST PATH - Gọi backend trực tiếp ngay lập tức!
-            updatePlaceholderStatus(emailId, "processing", "Đang đọc hòm thư...");
+            updatePlaceholderStatus(emailId, "processing", t('card.reading'));
             const fastResp = await fetch("/api/read-single", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -183,7 +183,7 @@ async function readMail() {
             }
 
             // Bước 2: FALLBACK PATH - Chỉ chạy khi backend gặp lỗi / bị block IP
-            updatePlaceholderStatus(emailId, "processing", "Đang thử phương thức dự phòng...");
+            updatePlaceholderStatus(emailId, "processing", t('card.fallback'));
             const res = await exchangeTokenClientSideSingle(acc);
             
             let prefetched_messages = null;
@@ -268,8 +268,8 @@ async function readMail() {
             replacePlaceholderWithError(email, err.message);
         } finally {
             const processedCount = okCount + errCount;
-            resultsSummary.textContent = `${okCount} OK · ${errCount} Lỗi · ${processedCount}/${totalCount}`;
-            statusEl.textContent = `Đang xử lý: ${processedCount}/${totalCount}`;
+            resultsSummary.textContent = t('summary.live', { ok: okCount, err: errCount, processed: processedCount, total: totalCount });
+            statusEl.textContent = t('status.progress', { processed: processedCount, total: totalCount });
         }
     });
 
@@ -277,8 +277,8 @@ async function readMail() {
     await Promise.all(processPromises);
 
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
-    resultsSummary.textContent = `${okCount} OK · ${errCount} Lỗi · Tổng ${totalCount} · ${elapsed}s`;
-    statusEl.textContent = `Hoàn thành: ${okCount}/${totalCount} account trong ${elapsed}s`;
+    resultsSummary.textContent = t('summary.done', { ok: okCount, err: errCount, total: totalCount, s: elapsed });
+    statusEl.textContent = t('status.done', { ok: okCount, total: totalCount, s: elapsed });
     btnRead.disabled = false;
 }
 
@@ -292,12 +292,12 @@ function createPlaceholderCard(email, idx) {
         <div class="account-card-header">
             <span class="account-email">${escHtml(email)}</span>
             <span class="account-status waiting" id="status-badge-${sanitizeId(email)}" style="padding:3px 10px; border-radius:12px; font-size:0.78rem; font-weight:500; background:rgba(93,122,146,0.1); color:var(--text-muted); border:1px solid var(--border-color);">
-                Đang chờ...
+                ${t('card.waiting')}
             </span>
         </div>
         <div class="account-placeholder-body" id="body-${sanitizeId(email)}" style="padding:24px; text-align:center; color:var(--text-muted); font-size:0.85rem; font-family:sans-serif;">
             <div class="spinner-small" style="display:inline-block; margin-right:8px; vertical-align:middle;"></div>
-            Đang xếp hàng...
+            ${t('card.queued')}
         </div>
     `;
     resultsContainer.appendChild(card);
@@ -312,7 +312,7 @@ function updatePlaceholderStatus(emailId, state, text) {
 
     if (state === "processing") {
         badge.style.cssText = badgeBase + "background:rgba(251,191,36,0.1); color:var(--warning); border:1px solid rgba(251,191,36,0.25);";
-        badge.textContent = "⏳ Đang chạy";
+        badge.textContent = t('card.processing.badge');
         body.innerHTML = `
             <div class="spinner-small" style="display:inline-block; margin-right:8px; vertical-align:middle;"></div>
             ${escHtml(text)}
@@ -327,7 +327,7 @@ function replacePlaceholderWithCard(email, messages) {
     card.innerHTML = `
         <div class="account-card-header">
             <span class="account-email">${escHtml(email)}</span>
-            <span class="account-status ok">✓ OK</span>
+            <span class="account-status ok">${t('card.ok')}</span>
         </div>
         <table class="mail-table">
             <thead>
@@ -346,7 +346,7 @@ function replacePlaceholderWithCard(email, messages) {
         <div class="account-footer">
             <button class="btn-more" id="btn-more-${sanitizeId(email)}" onclick="loadMoreMails('${escAttr(email)}')">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-                Xem thêm
+                ${t('card.viewmore')}
             </button>
         </div>
     `;
@@ -359,7 +359,7 @@ function replacePlaceholderWithError(email, error) {
     card.innerHTML = `
         <div class="account-card-header">
             <span class="account-email">${escHtml(email)}</span>
-            <span class="account-status error">✗ Lỗi</span>
+            <span class="account-status error">${t('card.error')}</span>
         </div>
         <div class="account-error-msg">${escHtml(error)}</div>
     `;
@@ -367,7 +367,7 @@ function replacePlaceholderWithError(email, error) {
 
 function renderMailRows(messages, startIdx, email) {
     if (!messages || messages.length === 0) {
-        return `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;">Không có thư</td></tr>`;
+        return `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;">${t('card.no.mail')}</td></tr>`;
     }
 
     return messages
@@ -389,7 +389,7 @@ function renderMailRows(messages, startIdx, email) {
                     <div class="mail-snippet">${escHtml(msg.snippet || "")}</div>
                 </td>
                 <td class="col-action">
-                    <button class="btn-detail" onclick="showDetail('${escAttr(email)}', '${escAttr(msgId)}')">Chi tiết</button>
+                    <button class="btn-detail" onclick="showDetail('${escAttr(email)}', '${escAttr(msgId)}')">` + t('btn.detail') + `</button>
                 </td>
             </tr>`;
         })
@@ -411,7 +411,7 @@ async function loadMoreMails(email) {
 
     if (btnMore) {
         btnMore.disabled = true;
-        btnMore.innerHTML = `<div class="spinner-small" style="display:inline-block; margin-right:8px; vertical-align:middle;"></div> Đang tải...`;
+        btnMore.innerHTML = `<div class="spinner-small" style="display:inline-block; margin-right:8px; vertical-align:middle;"></div> ${t('card.loading')}`;
     }
 
     try {
@@ -438,7 +438,7 @@ async function loadMoreMails(email) {
             }
 
             if (btnMore) {
-                btnMore.innerHTML = `✓ Đã tải ${data.messages.length} thư`;
+                btnMore.innerHTML = t('card.loaded', { n: data.messages.length });
                 btnMore.disabled = true;
                 btnMore.style.color = "var(--accent)";
                 btnMore.style.borderColor = "var(--accent)";
@@ -484,7 +484,7 @@ async function loadMoreMails(email) {
                     }
 
                     if (btnMore) {
-                        btnMore.innerHTML = `✓ Đã tải ${messages.length} thư`;
+                        btnMore.innerHTML = t('card.loaded', { n: messages.length });
                         btnMore.disabled = true;
                         btnMore.style.color = "var(--accent)";
                         btnMore.style.borderColor = "var(--accent)";
@@ -499,7 +499,7 @@ async function loadMoreMails(email) {
     }
 
     if (btnMore) {
-        btnMore.textContent = "Lỗi tải thêm thư";
+        btnMore.textContent = t('card.load.error');
         btnMore.disabled = false;
     }
     _accountInFlight[email] = false;
@@ -515,7 +515,7 @@ async function showDetail(email, messageId) {
     _accountInFlight[`detail_${email}_${messageId}`] = true;
 
     modalOverlay.classList.add("active");
-    modalTitle.textContent = "Đang tải...";
+    modalTitle.textContent = t('modal.loading');
     modalMeta.innerHTML = "";
     try {
         // FAST PATH: Gọi API backend trực tiếp (siêu nhanh ~0.1s - 0.2s)
@@ -535,13 +535,13 @@ async function showDetail(email, messageId) {
 
         if (!data.error) {
             accData.refresh_token = data.refresh_token || accData.refresh_token;
-            modalTitle.textContent = data.subject || "Chi tiết Email";
+            modalTitle.textContent = data.subject || t('modal.title.default');
             modalMeta.innerHTML = `
                 <div class="meta-row"><span class="meta-label">From:</span><span class="meta-value">${escHtml(data.from_name)} &lt;${escHtml(data.from_address)}&gt;</span></div>
                 <div class="meta-row"><span class="meta-label">Date:</span><span class="meta-value">${formatDate(data.date)}</span></div>
                 <div class="meta-row"><span class="meta-label">Subject:</span><span class="meta-value">${escHtml(data.subject)}</span></div>
             `;
-            const htmlBody = data.html_body || `<pre>${escHtml(data.snippet || "Không có nội dung")}</pre>`;
+            const htmlBody = data.html_body || `<pre>${escHtml(data.snippet || t('modal.no.content'))}</pre>`;
             modalIframe.srcdoc = htmlBody;
             _accountInFlight[`detail_${email}_${messageId}`] = false;
             return;
@@ -568,7 +568,7 @@ async function showDetail(email, messageId) {
                     const emailAddressObj = fromObj.emailAddress || {};
                     const bodyObj = msg.body || {};
                     
-                    modalTitle.textContent = msg.subject || "Chi tiết Email";
+                    modalTitle.textContent = msg.subject || t('modal.title.default');
                     modalMeta.innerHTML = `
                         <div class="meta-row"><span class="meta-label">From:</span><span class="meta-value">${escHtml(emailAddressObj.name || "")} &lt;${escHtml(emailAddressObj.address || "")}&gt;</span></div>
                         <div class="meta-row"><span class="meta-label">Date:</span><span class="meta-value">${formatDate(msg.receivedDateTime || "")}</span></div>
@@ -585,8 +585,8 @@ async function showDetail(email, messageId) {
         }
     }
 
-    modalTitle.textContent = "Lỗi";
-    modalIframe.srcdoc = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:red;">Không thể tải chi tiết email.</div>`;
+    modalTitle.textContent = t('modal.error');
+    modalIframe.srcdoc = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:red;">${t('modal.error')}</div>`;
     _accountInFlight[`detail_${email}_${messageId}`] = false;
 }
 
@@ -651,7 +651,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 function switchPage(page) {
     if (page === "oauth2" && window._supportsOAuth2Get === false) {
-        alert("Tính năng Get OAuth2 không khả dụng trên Vercel deployment.");
+        alert(t('alert.oauth2.unavail'));
         return;
     }
     document.getElementById("mail-page").style.display   = page === "mail"   ? "" : "none";
@@ -663,7 +663,7 @@ function switchPage(page) {
 // ── Get OAuth2 ──────────────────────────────────────────────────
 async function getOAuth2() {
     const raw = oauth2CredInput.value.trim();
-    if (!raw) { alert("Chưa nhập email|password!"); return; }
+    if (!raw) { alert(t('alert.oauth2.empty')); return; }
 
     const lines = raw.split("\n").map((l) => l.trim()).filter((l) => l);
     const tasks = [];
@@ -673,12 +673,12 @@ async function getOAuth2() {
         tasks.push({ email: parts[0].trim(), password: parts[1].trim() });
     }
 
-    if (tasks.length === 0) { alert("Format sai! Dùng: email|password"); return; }
+    if (tasks.length === 0) { alert(t('alert.oauth2.format')); return; }
 
     const btnGetOAuth2 = document.getElementById("btn-get-oauth2");
     btnGetOAuth2.disabled = true;
     oauth2ResultsContainer.innerHTML = "";
-    oauth2StatusEl.textContent = `Đang xử lý 0/${tasks.length}...`;
+    oauth2StatusEl.textContent = t('oauth2.status.processing', { i: 0, n: tasks.length, email: '' });
 
     tasks.forEach((t, i) => renderOAuth2Card(i, t.email));
 
@@ -686,7 +686,7 @@ async function getOAuth2() {
     for (let i = 0; i < tasks.length; i++) {
         const { email, password } = tasks[i];
         updateOAuth2CardStatus(i, "processing");
-        oauth2StatusEl.textContent = `Đang xử lý ${i + 1}/${tasks.length}: ${email}`;
+        oauth2StatusEl.textContent = t('oauth2.status.processing', { i: i + 1, n: tasks.length, email });
         try {
             const resp = await fetch("/api/get-token", {
                 method: "POST",
@@ -706,7 +706,7 @@ async function getOAuth2() {
         doneCount++;
     }
 
-    oauth2StatusEl.textContent = `Hoàn thành ${doneCount}/${tasks.length} tài khoản`;
+    oauth2StatusEl.textContent = t('oauth2.status.done', { done: doneCount, n: tasks.length });
     btnGetOAuth2.disabled = false;
 }
 
@@ -717,10 +717,10 @@ function renderOAuth2Card(idx, email) {
     card.innerHTML = `
         <div class="oauth2-card-header">
             <span class="account-email">${escHtml(email)}</span>
-            <span id="oauth2-badge-${idx}" style="padding:3px 10px;border-radius:12px;font-size:0.78rem;font-weight:500;background:rgba(93,122,146,0.1);color:var(--text-muted);border:1px solid var(--border-color);">&#8987; Đợi...</span>
+            <span id="oauth2-badge-${idx}" style="padding:3px 10px;border-radius:12px;font-size:0.78rem;font-weight:500;background:rgba(93,122,146,0.1);color:var(--text-muted);border:1px solid var(--border-color);">${t('oauth2.card.waiting')}</span>
         </div>
         <div class="oauth2-card-body" id="oauth2-body-${idx}">
-            <span style="color:var(--text-muted);font-size:0.85rem;">Đang chờ trong hàng...</span>
+            <span style="color:var(--text-muted);font-size:0.85rem;">${t('oauth2.card.queued')}</span>
         </div>
     `;
     oauth2ResultsContainer.appendChild(card);
@@ -734,8 +734,8 @@ function updateOAuth2CardStatus(idx, state, fullFormat, errorMsg) {
 
     if (state === "processing") {
         badge.style.cssText = badgeBase + "background:rgba(251,191,36,0.1);color:var(--warning);border:1px solid rgba(251,191,36,0.25);";
-        badge.textContent = "\u23F3 Đang xử lý...";
-        body.innerHTML = `<span style="color:var(--text-muted);font-size:0.85rem;">Đang đăng nhập qua Playwright, vui lòng chờ...</span>`;
+        badge.textContent = t('oauth2.card.processing');
+        body.innerHTML = `<span style="color:var(--text-muted);font-size:0.85rem;">${t('oauth2.card.login.wait')}</span>`;
     } else if (state === "ok") {
         badge.style.cssText = badgeBase + "background:var(--accent-dim);color:var(--accent);border:1px solid rgba(74,222,128,0.25);";
         badge.textContent = "\u2713 OK";

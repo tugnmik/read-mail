@@ -91,7 +91,13 @@ body {
     font-weight: 500;
 }
 
-/* ── Nav Links ───────────────────────────────────────────────────── */
+/* ── Header Right & Navigation ──────────────────────────────────── */
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .nav-links {
     display: flex;
     align-items: center;
@@ -107,6 +113,7 @@ body {
     text-decoration: none;
     transition: all var(--transition);
     border: 1px solid transparent;
+    white-space: nowrap;
 }
 
 .nav-link:hover {
@@ -121,14 +128,31 @@ body {
     background: var(--accent-dim);
 }
 
+/* ── Divider ─────────────────────────────────────────────────────── */
+.nav-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border-color);
+    margin: 0 2px;
+    flex-shrink: 0;
+}
+
+/* ── Utility & CTA Actions ───────────────────────────────────────── */
+.nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
 /* ── GitHub Star Button ──────────────────────────────────────────── */
 .nav-github-star {
     display: flex;
     align-items: center;
-    gap: 7px;
-    padding: 6px 14px;
+    gap: 6px;
+    padding: 6px 13px;
     border-radius: var(--radius);
-    font-size: 0.875rem;
+    font-size: 0.85rem;
     font-weight: 700;
     color: #0f1923;
     text-decoration: none;
@@ -137,9 +161,9 @@ body {
     box-shadow: 0 0 0 0 rgba(253, 224, 71, 0.4), 0 2px 8px rgba(245, 158, 11, 0.35);
     letter-spacing: 0.01em;
     transition: all 0.2s ease;
-    margin-left: 8px;
     position: relative;
     overflow: hidden;
+    white-space: nowrap;
 }
 
 .nav-github-star::before {
@@ -170,6 +194,51 @@ body {
 @keyframes star-pulse {
     0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
     50% { transform: scale(1.2) rotate(10deg); opacity: 0.85; }
+}
+
+/* ── Language Toggle ─────────────────────────────────────────────── */
+.nav-lang-toggle {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 5px 9px;
+    border-radius: var(--radius);
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: var(--bg-hover);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+.nav-lang-toggle:hover {
+    background: var(--bg-card);
+    border-color: var(--border-light);
+    color: var(--text-primary);
+}
+
+.nav-lang-toggle .lang-sep {
+    color: var(--text-muted);
+    font-weight: 300;
+}
+
+/* Active language label — bold & bright */
+.nav-lang-toggle[data-lang="vi"] .lang-vi {
+    color: var(--accent);
+}
+.nav-lang-toggle[data-lang="vi"] .lang-en {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+.nav-lang-toggle[data-lang="en"] .lang-en {
+    color: var(--accent);
+}
+.nav-lang-toggle[data-lang="en"] .lang-vi {
+    color: var(--text-muted);
+    font-weight: 400;
 }
 
 /* ── Main ────────────────────────────────────────────────────────── */
@@ -922,6 +991,45 @@ body {
 
 /* ── Responsive ──────────────────────────────────────────────────── */
 @media (max-width: 768px) {
+    #app-header {
+        padding: 0 14px;
+    }
+
+    .header-inner {
+        gap: 8px;
+    }
+
+    .logo h1 {
+        font-size: 1.05rem;
+    }
+
+    .header-right {
+        gap: 8px;
+    }
+
+    .nav-link {
+        padding: 5px 9px;
+        font-size: 0.8rem;
+    }
+
+    .nav-actions {
+        gap: 6px;
+    }
+
+    .nav-lang-toggle {
+        padding: 4px 7px;
+        font-size: 0.75rem;
+    }
+
+    .nav-github-star {
+        padding: 5px 8px;
+        gap: 4px;
+    }
+
+    .github-star-text {
+        display: none;
+    }
+
     #app-main {
         padding: 16px;
     }
@@ -956,5 +1064,33 @@ body {
     .account-card-header {
         flex-direction: column;
         align-items: flex-start;
+    }
+}
+
+@media (max-width: 480px) {
+    #app-header {
+        padding: 0 10px;
+    }
+
+    .logo svg {
+        width: 22px;
+        height: 22px;
+    }
+
+    .logo h1 {
+        font-size: 0.95rem;
+    }
+
+    .nav-links {
+        gap: 2px;
+    }
+
+    .nav-link {
+        padding: 4px 6px;
+        font-size: 0.75rem;
+    }
+
+    .header-right {
+        gap: 4px;
     }
 }
