@@ -31,6 +31,53 @@ function friendlyError(msg) {
     return msg;
 }
 
+// ── In-App Toast Notification ──────────────────────────────────────
+function showToast(message, type = "warning", duration = 3500) {
+    let container = document.getElementById("toast-container");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "toast-container";
+        container.className = "toast-container";
+        container.setAttribute("aria-live", "polite");
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement("div");
+    toast.className = `toast-item toast-${type}`;
+
+    let iconSvg = "";
+    if (type === "warning") {
+        iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+    } else if (type === "error") {
+        iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+    } else if (type === "success") {
+        iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+    } else {
+        iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
+    }
+
+    toast.innerHTML = `
+        <div class="toast-icon">${iconSvg}</div>
+        <div class="toast-message">${escHtml(message)}</div>
+        <button class="toast-close" title="Close">&times;</button>
+    `;
+
+    const closeBtn = toast.querySelector(".toast-close");
+    const removeToast = () => {
+        if (toast.classList.contains("toast-out")) return;
+        toast.classList.add("toast-out");
+        setTimeout(() => toast.remove(), 250);
+    };
+
+    closeBtn.addEventListener("click", removeToast);
+    container.appendChild(toast);
+
+    if (duration > 0) {
+        setTimeout(removeToast, duration);
+    }
+}
+window.showToast = showToast;
+
 // ── DOM refs ───────────────────────────────────────────────────────
 const inputEl = document.getElementById("oauth2-input");
 const lineCountEl = document.getElementById("line-count");
@@ -112,7 +159,7 @@ async function readMail() {
 
     let accounts = parseAccounts();
     if (accounts.length === 0) {
-        alert(t('alert.no.data'));
+        showToast(t('alert.no.data'), "warning");
         return;
     }
 
@@ -651,7 +698,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 function switchPage(page) {
     if (page === "oauth2" && window._supportsOAuth2Get === false) {
-        alert(t('alert.oauth2.unavail'));
+        showToast(t('alert.oauth2.unavail'), "info");
         return;
     }
     document.getElementById("mail-page").style.display   = page === "mail"   ? "" : "none";
@@ -663,7 +710,7 @@ function switchPage(page) {
 // ── Get OAuth2 ──────────────────────────────────────────────────
 async function getOAuth2() {
     const raw = oauth2CredInput.value.trim();
-    if (!raw) { alert(t('alert.oauth2.empty')); return; }
+    if (!raw) { showToast(t('alert.oauth2.empty'), "warning"); return; }
 
     const lines = raw.split("\n").map((l) => l.trim()).filter((l) => l);
     const tasks = [];
@@ -673,7 +720,7 @@ async function getOAuth2() {
         tasks.push({ email: parts[0].trim(), password: parts[1].trim() });
     }
 
-    if (tasks.length === 0) { alert(t('alert.oauth2.format')); return; }
+    if (tasks.length === 0) { showToast(t('alert.oauth2.format'), "warning"); return; }
 
     const btnGetOAuth2 = document.getElementById("btn-get-oauth2");
     btnGetOAuth2.disabled = true;

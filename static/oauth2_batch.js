@@ -137,13 +137,17 @@
     async function getOAuth2Batch() {
         const raw = input.value.trim();
         if (!raw) {
-            alert(typeof t === 'function' ? t('alert.oauth2.empty') : "Chưa nhập email|password!");
+            const msg = typeof t === 'function' ? t('alert.oauth2.empty') : "Chưa nhập email|password!";
+            if (typeof showToast === 'function') showToast(msg, "warning");
+            else alert(msg);
             return;
         }
 
         const tasks = parseOAuth2Tasks(raw);
         if (tasks.length === 0) {
-            alert(typeof t === 'function' ? t('alert.oauth2.format') : "Format sai! Dùng: email|password");
+            const msg = typeof t === 'function' ? t('alert.oauth2.format') : "Format sai! Dùng: email|password";
+            if (typeof showToast === 'function') showToast(msg, "warning");
+            else alert(msg);
             return;
         }
 
