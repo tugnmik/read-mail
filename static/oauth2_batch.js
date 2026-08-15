@@ -34,7 +34,7 @@
     function updateOAuth2CredLineCountBatch() {
         if (!input || !lineCount) return;
         const lines = input.value.trim().split("\n").filter((line) => line.trim());
-        lineCount.textContent = `${lines.length} dong`;
+        lineCount.textContent = typeof t === 'function' ? t('line.count', { n: lines.length }) : `${lines.length} lines`;
     }
 
     function parseOAuth2Tasks(raw) {
@@ -137,13 +137,13 @@
     async function getOAuth2Batch() {
         const raw = input.value.trim();
         if (!raw) {
-            alert("Chua nhap email|password!");
+            alert(typeof t === 'function' ? t('alert.oauth2.empty') : "Chưa nhập email|password!");
             return;
         }
 
         const tasks = parseOAuth2Tasks(raw);
         if (tasks.length === 0) {
-            alert("Format sai! Dung: email|password");
+            alert(typeof t === 'function' ? t('alert.oauth2.format') : "Format sai! Dùng: email|password");
             return;
         }
 
@@ -228,7 +228,7 @@
     function copyText(text, btn) {
         return navigator.clipboard.writeText(text).then(() => {
             if (!btn) return;
-            btn.textContent = "Da copy";
+            btn.textContent = typeof t === 'function' ? t('btn.copied') : "✓ Đã copy";
             btn.classList.add("copied");
             setTimeout(() => {
                 updateCopyAllState();
@@ -242,7 +242,7 @@
             document.execCommand("copy");
             document.body.removeChild(ta);
             if (!btn) return;
-            btn.textContent = "Da copy";
+            btn.textContent = typeof t === 'function' ? t('btn.copied') : "✓ Đã copy";
             btn.classList.add("copied");
             setTimeout(() => {
                 updateCopyAllState();
@@ -271,7 +271,7 @@
         workerInput.value = String(detectDefaultWorkers());
     }
     if (input) {
-        input.placeholder = "Nhap moi dong: email|password\n\nVi du:\nuser@outlook.com|password123\nuser2@hotmail.com|pass456";
+        input.placeholder = typeof t === 'function' ? t('oauth2.textarea.placeholder') : "Nhap moi dong: email|password\n\nVi du:\nuser@outlook.com|password123\nuser2@hotmail.com|pass456";
         input.addEventListener("input", updateOAuth2CredLineCountBatch);
     }
 

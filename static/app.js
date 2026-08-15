@@ -327,15 +327,15 @@ function replacePlaceholderWithCard(email, messages) {
     card.innerHTML = `
         <div class="account-card-header">
             <span class="account-email">${escHtml(email)}</span>
-            <span class="account-status ok">${t('card.ok')}</span>
+            <span class="account-status ok" data-i18n="card.ok">${t('card.ok')}</span>
         </div>
         <table class="mail-table">
             <thead>
                 <tr>
-                    <th class="col-stt">STT</th>
-                    <th class="col-from">From</th>
-                    <th class="col-time">Time</th>
-                    <th class="col-content">Content</th>
+                    <th class="col-stt" data-i18n="th.stt">${t('th.stt')}</th>
+                    <th class="col-from" data-i18n="th.from">${t('th.from')}</th>
+                    <th class="col-time" data-i18n="th.time">${t('th.time')}</th>
+                    <th class="col-content" data-i18n="th.content">${t('th.content')}</th>
                     <th class="col-action"></th>
                 </tr>
             </thead>
@@ -346,7 +346,7 @@ function replacePlaceholderWithCard(email, messages) {
         <div class="account-footer">
             <button class="btn-more" id="btn-more-${sanitizeId(email)}" onclick="loadMoreMails('${escAttr(email)}')">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-                ${t('card.viewmore')}
+                <span data-i18n="card.viewmore">${t('card.viewmore')}</span>
             </button>
         </div>
     `;
@@ -359,7 +359,7 @@ function replacePlaceholderWithError(email, error) {
     card.innerHTML = `
         <div class="account-card-header">
             <span class="account-email">${escHtml(email)}</span>
-            <span class="account-status error">${t('card.error')}</span>
+            <span class="account-status error" data-i18n="card.error">${t('card.error')}</span>
         </div>
         <div class="account-error-msg">${escHtml(error)}</div>
     `;
@@ -367,7 +367,7 @@ function replacePlaceholderWithError(email, error) {
 
 function renderMailRows(messages, startIdx, email) {
     if (!messages || messages.length === 0) {
-        return `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;">${t('card.no.mail')}</td></tr>`;
+        return `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;" data-i18n="card.no.mail">${t('card.no.mail')}</td></tr>`;
     }
 
     return messages
@@ -389,7 +389,7 @@ function renderMailRows(messages, startIdx, email) {
                     <div class="mail-snippet">${escHtml(msg.snippet || "")}</div>
                 </td>
                 <td class="col-action">
-                    <button class="btn-detail" onclick="showDetail('${escAttr(email)}', '${escAttr(msgId)}')">` + t('btn.detail') + `</button>
+                    <button class="btn-detail" data-i18n="btn.detail" onclick="showDetail('${escAttr(email)}', '${escAttr(msgId)}')">${t('btn.detail')}</button>
                 </td>
             </tr>`;
         })
@@ -759,9 +759,9 @@ function copyOAuth2(btn, idx) {
     const value = oauth2TokenMap[idx];
     if (!value) return;
     navigator.clipboard.writeText(value).then(() => {
-        btn.textContent = "\u2713 \u0110\u00e3 copy";
+        btn.textContent = t('btn.copied');
         btn.classList.add("copied");
-        setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 2000);
+        setTimeout(() => { btn.textContent = t('btn.copy'); btn.classList.remove("copied"); }, 2000);
     }).catch(() => {
         const ta = document.createElement("textarea");
         ta.value = value;
@@ -769,8 +769,8 @@ function copyOAuth2(btn, idx) {
         ta.select();
         document.execCommand("copy");
         document.body.removeChild(ta);
-        btn.textContent = "\u2713 Đã copy";
-        setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+        btn.textContent = t('btn.copied');
+        setTimeout(() => { btn.textContent = t('btn.copy'); }, 2000);
     });
 }
 
