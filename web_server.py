@@ -383,7 +383,7 @@ def _oauth2_worker(worker_id, task_queue, result_queue):
 
         from playwright.sync_api import sync_playwright
 
-        from get_hotmail_token import (
+        from tools.get_hotmail_token import (
             get_token_from_credentials,
             is_resource_error,
             launch_token_browser,
@@ -649,7 +649,7 @@ def api_get_token():
         return jsonify({"error": "Thieu email hoac password"}), 400
 
     try:
-        from get_hotmail_token import get_token_from_credentials
+        from tools.get_hotmail_token import get_token_from_credentials
         result = get_token_from_credentials(email, password)
         if "error" in result:
             return jsonify({
