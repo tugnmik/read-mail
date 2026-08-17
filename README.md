@@ -47,11 +47,20 @@ Instead of waiting for all accounts to finish, results stream to the frontend as
 - **Frontend:** NDJSON (Newline Delimited JSON) streaming parser renders results instantly
 - **Result:** Sub-second perceived latency (0.3–0.5s per account)
 
+### 🔑 Smart OTP & Verification Code Extractor
+Built-in heuristic extraction engine (`code_extractor.py`) that automatically parses and extracts 1-click copyable verification codes directly into the mail table and API responses:
+- **Automatic prefix stripping:** Automatically strips brand/system prefixes (`G-847291` → `847291`, `FB-391024` → `391024`, `MS-123456` → `123456`) so users and automated scripts get the exact code ready for pasting.
+- **Hyphenated numbers:** `883-574` (SpaceX / X.ai), `123-456`, `1234-5678`
+- **Uppercase alphanumeric:** `RD4K9` (Steam Guard), `XKJHD`
+- **Mixed alphanumeric:** `8F2A1K` (GitHub), `ABC-123` (Slack)
+- **Standard OTP digits:** `095439`, `847291` (4–8 digits)
+- **Negative filtering:** Automatically rejects orders, invoices, tracking IDs, and dictionary words (`COMMON_WORD_EXCLUSIONS`) to prevent false positives.
+
 ### 🛡️ Resilient Fallback Chain
 ```
 Primary: Server-side Graph/Outlook API
     ↓ (if server IP is rate-limited)
-Fallback 1: Client-side browser Graph API call
+FallBack 1: Client-side browser Graph API call
     ↓ (if Graph API rejects token)
 Fallback 2: IMAP protocol via outlook.office365.com
 ```
@@ -73,12 +82,13 @@ class BlockAllCookies(http.cookiejar.DefaultCookiePolicy):
 ├── static/
 │   ├── index.html              # Web interface (bilingual EN/VI)
 │   ├── styles.css              # Dark theme design system
-│   ├── app.js                  # Real-time streaming UI logic
+│   ├── app.js                  # Real-time streaming UI logic & 1-click copy
 │   ├── i18n.js                 # Internationalization module
 │   ├── oauth2_batch.js         # Client-side batch controller
-│   └── api-docs.html           # REST API documentation
+│   └── api-docs.html           # REST API documentation with code schemas
 │
 ├── graph_api_service.py        # ⭐ Core: Dual-API client with token detection
+├── code_extractor.py           # 🔑 Smart OTP & verification code extraction engine
 ├── web_server.py               # Flask server with NDJSON streaming endpoints
 ├── imap_mail_reader.py         # IMAP fallback module
 ├── read_mail_from_refresh.py   # CLI tool for quick token validation
@@ -178,14 +188,16 @@ A `render.yaml` blueprint is included for one-click Render deployment.
 │  └─────────────────────┬───────────────────────────────────┘ │
 ├────────────────────────┴────────────────────────────────────┤
 │                   Service Layer                              │
-│  ┌──────────────────────┐  ┌───────────────┐                │
-│  │ graph_api_service.py │  │ imap_reader.py│                │
-│  │ • Token family detect│  │ • IMAP fallback│               │
-│  │ • Graph API v1.0     │  │ • SSL/TLS     │                │
-│  │ • Outlook REST v2.0  │  └───────────────┘                │
-│  │ • Cookie workaround  │                                    │
-│  │ • Scope negotiation  │                                    │
-│  └──────────────────────┘                                    │
+│  ┌──────────────────────┐  ┌─────────────────────────────┐  │
+│  │ graph_api_service.py │  │ code_extractor.py           │  │
+│  │ • Token family detect│  │ • Multi-format OTP parser   │  │
+│  │ • Graph API v1.0     │  │ • Contextual regex matcher  │  │
+│  │ • Outlook REST v2.0  │  │ • Negative noise filters    │  │
+│  │ • Cookie workaround  │  └─────────────────────────────┘  │
+│  │ • Scope negotiation  │  ┌─────────────────────────────┐  │
+│  └──────────────────────┘  │ imap_mail_reader.py         │  │
+│                            │ • IMAP fallback & SSL/TLS   │  │
+│                            └─────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -254,6 +266,7 @@ Bộ công cụ tích hợp Microsoft Graph API và Outlook REST API cho việc 
 ### Tính năng
 - **Tải nhanh (Fast Path):** Truy vấn hộp thư bằng Refresh Token, phản hồi 0.3–0.5s/tài khoản
 - **Định tuyến API tự động:** Nhận diện loại token → chọn Graph API hoặc Outlook REST v2.0
+- **Smart OTP Extractor:** Tự động trích xuất và lược bỏ tiền tố (ví dụ: `G-847291` → `847291`, `FB-391024` → `391024`), hỗ trợ mã số có gạch nối `883-574`, Steam Guard `RD4K9`, chữ+số `8F2A1K` kèm nút Copy 1-Click
 - **Xử lý song song & Streaming:** ThreadPool + NDJSON streaming hiển thị kết quả real-time
 - **Dự phòng đa tầng:** Server API → Client-side API → IMAP fallback
 - **Đa ngôn ngữ:** Giao diện song ngữ Tiếng Anh / Tiếng Việt

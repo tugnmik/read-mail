@@ -22,10 +22,9 @@
                 <h1 data-i18n="logo.title">Đọc Hòm Thư</h1>
             </div>
             <div class="header-right">
-                <!-- Group 1: Navigation Links -->
+                <nav class="nav-links">
                     <a href="#" class="nav-link active" id="nav-mail" onclick="switchPage('mail'); return false;" data-i18n="nav.readmail">Đọc Mail</a>
                     <a href="#" class="nav-link" id="nav-oauth2" onclick="switchPage('oauth2'); return false;" data-i18n="nav.getoauth2">Get OAuth2</a>
-                    <a href="#" class="nav-link" id="nav-verify" onclick="switchPage('verify'); return false;" data-i18n="nav.verify">Verify Code</a>
                     <a href="/api-docs" class="nav-link" data-i18n="nav.apidocs">Tài Liệu API</a>
                 </nav>
 
@@ -150,42 +149,6 @@
                 </div>
             </section>
             <div id="oauth2-results-container"></div>
-        </div>
-
-        <!-- ═══ Verify Page ══════════════════════════════════════════ -->
-        <div id="verify-page" style="display:none">
-            <div class="input-section">
-                <h2 data-i18n="verify.title">Extract Verification Code</h2>
-                <p class="input-description" data-i18n="verify.desc">Automatically extract OTP codes, verification codes, and magic links from your latest emails.</p>
-                
-                <div class="input-group">
-                <label data-i18n="verify.input.label">Account Info (email|password|refresh_token|client_id)</label>
-                <textarea id="verify-input" rows="3" placeholder="email|password|refresh_token|client_id" data-i18n-placeholder="verify.input.placeholder"></textarea>
-                </div>
-                
-                <div class="verify-options">
-                <div class="input-group" style="flex:1">
-                    <label data-i18n="verify.sender.label">Sender Filter (optional)</label>
-                    <input type="text" id="verify-sender" placeholder="noreply@github.com" data-i18n-placeholder="verify.sender.placeholder" />
-                </div>
-                <div class="input-group" style="width:120px">
-                    <label data-i18n="verify.limit.label">Check latest</label>
-                    <select id="verify-limit">
-                    <option value="3">3 emails</option>
-                    <option value="5" selected>5 emails</option>
-                    <option value="10">10 emails</option>
-                    <option value="20">20 emails</option>
-                    </select>
-                </div>
-                </div>
-                
-                <button id="btn-verify" class="btn-primary" onclick="extractVerifyCode()" data-i18n="verify.btn">Extract Code</button>
-            </div>
-            
-            <div id="verify-results" class="verify-results" style="display:none">
-                <h3 data-i18n="verify.results.title">Results</h3>
-                <div id="verify-results-container"></div>
-            </div>
         </div>
     </main>
 

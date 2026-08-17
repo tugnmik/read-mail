@@ -126,6 +126,15 @@ def read_messages_imap(
                     raw_body = body_bytes.decode("utf-8", errors="replace")
                     snippet = _strip_html_tags(raw_body)[:200]
 
+                code = ""
+                try:
+                    import code_extractor
+                    best = code_extractor.find_best_code(subject, snippet, from_info.get("address"))
+                    if best and best.get("value"):
+                        code = best.get("value", "")
+                except Exception:
+                    pass
+
                 messages.append(
                     {
                         "id": f"imap_{mid.decode()}",
@@ -134,6 +143,7 @@ def read_messages_imap(
                         "from_address": from_info["address"],
                         "date": date_iso,
                         "snippet": snippet,
+                        "code": code,
                     }
                 )
             except Exception:

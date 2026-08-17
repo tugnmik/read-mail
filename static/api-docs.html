@@ -123,7 +123,10 @@
         <div class="docs-container">
             <div style="margin-bottom: 32px;">
                 <h2 style="font-size: 2rem; margin-bottom: 8px;">Tài Liệu Tích Hợp API</h2>
-                <p style="color: var(--text-secondary);">Sử dụng các endpoint dưới đây để tích hợp công cụ đọc mail (Microsoft Graph API) vào hệ thống của bạn.</p>
+                <p style="color: var(--text-secondary); line-height: 1.6;">Sử dụng các endpoint dưới đây để tích hợp công cụ đọc mail (Microsoft Graph API) vào hệ thống của bạn. Tất cả các API đọc thư đều được tích hợp sẵn <strong>Smart OTP / Code Extractor</strong> tự động bóc tách mã xác nhận ngay trong response.</p>
+                <div style="margin-top: 12px; padding: 12px 16px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: var(--radius); font-size: 0.85rem; color: var(--text-primary); line-height: 1.5;">
+                    💡 <strong>Smart OTP Extractor:</strong> Trường <code style="color: var(--accent); background: var(--bg-input); padding: 2px 6px; border-radius: 4px;">code</code> trong mỗi email sẽ tự động chứa mã xác nhận/OTP tinh gọn để người dùng hoặc bot copy/paste trực tiếp. Hệ thống tự động lược bỏ tiền tố thương hiệu (ví dụ: <code style="color:var(--accent)">G-847291</code> → <code style="color:var(--accent)">847291</code>, <code style="color:var(--accent)">FB-391024</code> → <code style="color:var(--accent)">391024</code>), hỗ trợ mã số có gạch nối (<code style="color:var(--accent)">883-574</code>), mã chữ Steam Guard (<code style="color:var(--accent)">RD4K9</code>), và mã chữ+số (<code style="color:var(--accent)">8F2A1K</code>). Nếu email không chứa mã, trường này sẽ là <code style="color:var(--text-muted)">""</code> (chuỗi rỗng).
+                </div>
             </div>
 
             <!-- Endpoint 1 -->
@@ -147,8 +150,22 @@
 ]</pre>
 
                     <div class="section-title">Response (application/x-ndjson)</div>
-                    <pre><span class="comment">// Dòng 1 stream về ngay lập tức khi account 1 xong</span>
-{<span class="key">"email"</span>: <span class="string">"test@hotmail.com"</span>, <span class="key">"status"</span>: <span class="string">"ok"</span>, <span class="key">"messages"</span>: [{<span class="key">"id"</span>: <span class="string">"..."</span>, <span class="key">"subject"</span>: <span class="string">"Verify code"</span>...}]}
+                    <pre><span class="comment">// Dòng 1 stream về ngay lập tức khi account 1 hoàn tất</span>
+{
+  <span class="key">"email"</span>: <span class="string">"test@hotmail.com"</span>,
+  <span class="key">"status"</span>: <span class="string">"ok"</span>,
+  <span class="key">"messages"</span>: [
+    {
+      <span class="key">"id"</span>: <span class="string">"AQQkADAwATM3AD..."</span>,
+      <span class="key">"subject"</span>: <span class="string">"SpaceXAI confirmation code: 883-574"</span>,
+      <span class="key">"from_name"</span>: <span class="string">"SpaceXAI"</span>,
+      <span class="key">"from_address"</span>: <span class="string">"noreply@x.ai"</span>,
+      <span class="key">"date"</span>: <span class="string">"2026-08-17T12:45:00Z"</span>,
+      <span class="key">"snippet"</span>: <span class="string">"Please use the code below to validate your email: 883-574"</span>,
+      <span class="key">"code"</span>: <span class="string">"883-574"</span> <span class="comment">// ⭐ Tự động trích xuất mã OTP</span>
+    }
+  ]
+}
 <span class="comment">// Dòng 2...</span>
 {<span class="key">"email"</span>: <span class="string">"error@hotmail.com"</span>, <span class="key">"status"</span>: <span class="string">"error"</span>, <span class="key">"error"</span>: <span class="string">"Token het han"</span>}</pre>
                 </div>
@@ -162,7 +179,7 @@
                     <span class="desc">Chỉ định số lượng thư cần đọc của 1 tài khoản</span>
                 </div>
                 <div class="endpoint-body">
-                    <p style="color: var(--text-secondary); margin-bottom: 16px;">Lấy danh sách N thư mới nhất từ một tài khoản cụ thể.</p>
+                    <p style="color: var(--text-secondary); margin-bottom: 16px;">Lấy danh sách N thư mới nhất từ một tài khoản cụ thể (kèm mã xác thực trích xuất nhanh).</p>
                     
                     <div class="section-title">Request Body</div>
                     <pre>{
@@ -176,11 +193,21 @@
   <span class="key">"messages"</span>: [
     {
       <span class="key">"id"</span>: <span class="string">"AQQkADAwATM3AD..."</span>,
-      <span class="key">"subject"</span>: <span class="string">"Welcome to Figma"</span>,
-      <span class="key">"from_name"</span>: <span class="string">"Figma"</span>,
-      <span class="key">"from_address"</span>: <span class="string">"support@figma.com"</span>,
-      <span class="key">"date"</span>: <span class="string">"2026-03-17T13:51:00Z"</span>,
-      <span class="key">"snippet"</span>: <span class="string">"You are now verified as a student..."</span>
+      <span class="key">"subject"</span>: <span class="string">"095439 là mã để bạn xác nhận email này"</span>,
+      <span class="key">"from_name"</span>: <span class="string">"Facebook"</span>,
+      <span class="key">"from_address"</span>: <span class="string">"security@facebookmail.com"</span>,
+      <span class="key">"date"</span>: <span class="string">"2026-08-17T11:20:00Z"</span>,
+      <span class="key">"snippet"</span>: <span class="string">"095439 là mã xác nhận tài khoản của bạn"</span>,
+      <span class="key">"code"</span>: <span class="string">"095439"</span> <span class="comment">// ⭐ Mã xác nhận Facebook</span>
+    },
+    {
+      <span class="key">"id"</span>: <span class="string">"AQQkADAwATM3AE..."</span>,
+      <span class="key">"subject"</span>: <span class="string">"You're almost there!"</span>,
+      <span class="key">"from_name"</span>: <span class="string">"Netflix"</span>,
+      <span class="key">"from_address"</span>: <span class="string">"info@account.netflix.com"</span>,
+      <span class="key">"date"</span>: <span class="string">"2026-08-17T10:15:00Z"</span>,
+      <span class="key">"snippet"</span>: <span class="string">"Tap the link to finish signing up."</span>,
+      <span class="key">"code"</span>: <span class="string">""</span> <span class="comment">// Thư không chứa mã OTP</span>
     }
   ]
 }</pre>
@@ -195,7 +222,7 @@
                     <span class="desc">Lấy nội dung HTML chi tiết của 1 thư</span>
                 </div>
                 <div class="endpoint-body">
-                    <p style="color: var(--text-secondary); margin-bottom: 16px;">Sử dụng Message ID (được trả về ở các API trên) để lấy mã nguồn HTML nguyên bản của email để render / hiển thị.</p>
+                    <p style="color: var(--text-secondary); margin-bottom: 16px;">Sử dụng Message ID (được trả về ở các API trên) để lấy mã nguồn HTML nguyên bản của email để render / hiển thị, đồng thời tự động bóc tách mã xác nhận nằm sâu trong HTML body.</p>
                     
                     <div class="section-title">Request Body</div>
                     <pre>{
@@ -207,11 +234,12 @@
                     <div class="section-title">Response (application/json)</div>
                     <pre>{
   <span class="key">"id"</span>: <span class="string">"AQQkADAwATM3AD..."</span>,
-  <span class="key">"subject"</span>: <span class="string">"Welcome to Figma"</span>,
-  <span class="key">"from_name"</span>: <span class="string">"Figma"</span>,
-  <span class="key">"from_address"</span>: <span class="string">"support@figma.com"</span>,
-  <span class="key">"date"</span>: <span class="string">"2026-03-17T13:51:00Z"</span>,
-  <span class="key">"html_body"</span>: <span class="string">"&lt;html&gt;&lt;body&gt;...&lt;/body&gt;&lt;/html&gt;"</span>,
+  <span class="key">"subject"</span>: <span class="string">"Steam Guard Code"</span>,
+  <span class="key">"from_name"</span>: <span class="string">"Steam Support"</span>,
+  <span class="key">"from_address"</span>: <span class="string">"noreply@steampowered.com"</span>,
+  <span class="key">"date"</span>: <span class="string">"2026-08-17T13:51:00Z"</span>,
+  <span class="key">"code"</span>: <span class="string">"RD4K9"</span>, <span class="comment">// ⭐ Mã xác thực Steam Guard</span>
+  <span class="key">"html_body"</span>: <span class="string">"&lt;html&gt;&lt;body&gt;Your login code is: &lt;b&gt;RD4K9&lt;/b&gt;&lt;/body&gt;&lt;/html&gt;"</span>,
   <span class="key">"content_type"</span>: <span class="string">"html"</span>
 }</pre>
                 </div>

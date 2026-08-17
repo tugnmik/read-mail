@@ -367,6 +367,179 @@ function updatePlaceholderStatus(emailId, state, text) {
     }
 }
 
+// ── Code Extraction & Quick Copy ───────────────────────────────────
+const COMMON_WORD_EXCLUSIONS = new Set([
+    "below", "above", "after", "before", "email", "login", "thank", "valid",
+    "address", "account", "ignore", "please", "verify", "click", "device",
+    "security", "signin", "signup", "confirm", "action", "access", "update",
+    "service", "support", "online", "system", "request", "message", "member",
+    "duoi", "sau", "day", "xac", "nhan", "thuc", "khoan", "tai", "password"
+]);
+
+function cleanCodeValue(code) {
+    if (!code) return '';
+    const clean = code.trim();
+    const m = clean.match(/^[A-Za-z]{1,4}[-\s:]+(\d{4,8})$/);
+    if (m && m[1]) {
+        return m[1];
+    }
+    return clean;
+}
+
+function isValidCodeValue(code) {
+    if (!code) return false;
+    const clean = code.trim().toLowerCase();
+    const raw = code.trim();
+    if (COMMON_WORD_EXCLUSIONS.has(clean)) return false;
+    if (/^20\d{2}[-/]\d{2}(?:[-/]\d{2})?$/.test(clean)) return false;
+    if (/^\d{4}$/.test(clean)) {
+        const y = parseInt(clean, 10);
+        if (y >= 2000 && y <= 2035) return false;
+    }
+    const hasDigit = /\d/.test(clean);
+    const hasHyphen = clean.includes('-');
+    const isUppercaseCode = raw === raw.toUpperCase() && /^[A-Z0-9]{4,8}$/.test(raw) && !/^[A-Z]+$/.test(clean) || (raw === raw.toUpperCase() && /^[A-Z]{4,8}$/.test(raw) && !COMMON_WORD_EXCLUSIONS.has(clean));
+    
+    if (!hasDigit && !hasHyphen && !isUppercaseCode) return false;
+    return true;
+}
+
+const CODE_REGEX_STR = '\\b[A-Za-z]{1,4}-\\d{4,8}\\b|\\b\\d{2,4}-\\d{2,4}(?:-\\d{2,4})?\\b|\\b\\d{3,4}\\s+\\d{3,4}\\b|\\b[A-Za-z0-9]{2,4}-[A-Za-z0-9]{2,4}\\b|\\b(?=[A-Za-z0-9]*\\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{4,10}\\b|\\b[A-Z0-9]{4,8}\\b|\\b[0-9]{4,8}\\b';
+
+function extractCodeFromText(subject, snippet) {
+    const subj = (subject || '').trim();
+    let snip = (snippet || '').trim();
+    if (snip.includes('<') && snip.includes('>')) {
+        snip = snip.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+                   .replace(/<(br|p|div|tr|h[1-6]|li)[^>]*>/gi, '\n')
+                   .replace(/<[^>]+>/g, ' ')
+                   .replace(/&nbsp;/g, ' ')
+                   .replace(/&amp;/g, '&')
+                   .replace(/&lt;/g, '<')
+                   .replace(/&gt;/g, '>')
+                   .replace(/&quot;/g, '"')
+                   .replace(/[ \t]+/g, ' ')
+                   .replace(/\n\s*\n/g, '\n');
+    }
+    const fullText = (subj + '\n' + snip).trim();
+    if (!fullText) return '';
+
+    const lowerSubj = subj.toLowerCase();
+    const lowerFull = fullText.toLowerCase();
+
+    // 1. Loại trừ nếu là email đơn hàng, hóa đơn, newsletter
+    const negativePatterns = [
+        /\border\s+(?:confirmation|receipt|invoice|shipped|delivered|update|placed|summary)\b/i,
+        /\b(?:invoice|receipt|statement|billing statement|bill|payment confirmation)\b/i,
+        /\bnewsletter\b/i,
+        /\b(?:weekly|daily|monthly)\s+(?:digest|summary|update|news)\b/i,
+        /\bshipping update\b/i,
+        /\bpackage delivered\b/i,
+        /\byour\s+(?:order|subscription)\s+is\s+confirmed\b/i
+    ];
+    for (const np of negativePatterns) {
+        if (np.test(lowerSubj)) return '';
+    }
+
+    // 2. Mẫu ngữ cảnh độ tin cậy cao
+    const contextualPatterns = [
+        // Tiếng Việt (có dấu và không dấu)
+        new RegExp('(?:m[ãa]\\s*(?:x[áa]c\\s*nh[ậa]n|x[áa]c\\s*minh|otp|b[ảa]o\\s*m[ậa]t|k[íi]ch\\s*ho[ạa]t|[đd][ăa]ng\\s*nh[ậa]p|truy\\s*c[ậa]p|kh[ôo]i\\s*ph[ụu]c|m[ộo]t\\s*l[ầa]n)?(?:\\s*c[ủu]a\\s*b[ạa]n)?(?:\\s*l[àa]|\\s*sau\\s*[đd][âa]y|\\s*d[ưu][ớo]i\\s*[đd][âa]y)?[\\s:]+)(' + CODE_REGEX_STR + ')', 'i'),
+        new RegExp('(' + CODE_REGEX_STR + ')\\s+l[àa]\\s+m[ãa]\\s+(?:[đd][ểe]\\s+b[ạa]n\\s+)?(?:x[áa]c\\s*nh[ậa]n|x[áa]c\\s*minh|otp|b[ảa]o\\s*m[ậa]t|k[íi]ch\\s*ho[ạa]t|[đd][ăa]ng\\s*nh[ậa]p)', 'i'),
+        new RegExp('(?:nh[ậa]p|d[ùu]ng|s[ửu]\\s*d[ụu]ng)\\s+m[ãa](?:\\s+sau\\s*[đd][âa]y|\\s+d[ưu][ớo]i\\s*[đd][âa]y)?[\\s:]+(' + CODE_REGEX_STR + ')', 'i'),
+
+        // Tiếng Anh
+        new RegExp('(?:(?:verification|security|confirmation|validation|activation|login|access|sign-in|one-time|auth(?:entication)?)\\s+code|passcode|otp)[\\s:]+(?:is[\\s:]+)?(' + CODE_REGEX_STR + ')', 'i'),
+        new RegExp('(' + CODE_REGEX_STR + ')\\s+is\\s+your\\s+(?:[a-zA-Z0-9_\\-\\.]+\\s+)?(?:verification|security|confirmation|validation|activation|login|access|sign-in|one-time|auth(?:entication)?)\\s*(?:code|passcode|otp|pin)', 'i'),
+        new RegExp('(' + CODE_REGEX_STR + ')\\s+is\\s+your\\s+code\\b', 'i'),
+        new RegExp('(?:your\\s+code\\s+is[\\s:]+|your\\s+code[\\s:]+)(' + CODE_REGEX_STR + ')', 'i'),
+        new RegExp('(?:enter|use|verify\\s+with)(?:\\s+the)?\\s+code(?:\\s+below)?[\\s:]+(' + CODE_REGEX_STR + ')', 'i'),
+        new RegExp('(?:code|pin|passcode)[\\s:]+(' + CODE_REGEX_STR + ')', 'i'),
+        new RegExp('^(' + CODE_REGEX_STR + ')\\s+(?:is\\s+your|l[àa]\\s+m[ãa])', 'im')
+    ];
+
+    for (const cp of contextualPatterns) {
+        const m = fullText.match(cp);
+        if (m && m[1]) {
+            const val = m[1].trim();
+            if (isValidCodeValue(val)) {
+                return cleanCodeValue(val);
+            }
+        }
+    }
+
+    // 3. Nếu có từ khóa bảo mật/xác minh, quét tìm số OTP gần từ khóa
+    const verifyKwList = ['code', 'mã', 'otp', 'verify', 'xác', 'passcode', 'security', 'pin', 'bảo mật', 'one-time', 'đăng nhập', 'login', 'confirm', 'kích hoạt', 'activation', 'validate'];
+    const hasVerify = verifyKwList.some(kw => lowerFull.includes(kw)) || ['xác', 'mã', 'code', 'otp', 'security', 'confirm', 'validate'].some(k => lowerSubj.includes(k));
+    
+    if (hasVerify) {
+        const globalRegex = new RegExp(CODE_REGEX_STR, 'gi');
+        let match;
+        while ((match = globalRegex.exec(fullText)) !== null) {
+            const val = match[0].trim();
+            if (!isValidCodeValue(val)) continue;
+
+            const start = match.index;
+            const end = start + val.length;
+            const surrounding = fullText.substring(Math.max(0, start - 120), Math.min(fullText.length, end + 120)).toLowerCase();
+
+            // Loại trừ nếu gần đơn hàng, hóa đơn, địa chỉ, tiền tệ
+            if (/\b(order|invoice|tracking|suite|apt|box|port|address|price|\$|usd|vnd|₫)\b/i.test(surrounding)) {
+                continue;
+            }
+            if (/20\d{2}/.test(surrounding) && !surrounding.includes('code') && !surrounding.includes('mã')) {
+                continue;
+            }
+
+            if (['code', 'mã', 'otp', 'verify', 'xác', 'passcode', 'security', 'pin', 'bảo mật', 'one-time', 'đăng nhập', 'login', 'confirm', 'kích hoạt', 'activation'].some(k => surrounding.includes(k))) {
+                return cleanCodeValue(val);
+            }
+        }
+    }
+
+    return '';
+}
+
+function copyCode(btn, code) {
+    if (!code) return;
+    const origText = btn.textContent;
+    
+    const onCopied = () => {
+        btn.textContent = t('btn.copied') || '✓ Copied';
+        btn.classList.add('copied');
+        if (typeof showToast === 'function') {
+            showToast(t('toast.code.copied', { code: code }) || `Đã copy mã: ${code}`, 'success', 2200);
+        }
+        setTimeout(() => {
+            btn.textContent = origText;
+            btn.classList.remove('copied');
+        }, 1600);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(onCopied).catch(() => {
+            copyCodeFallback(code, onCopied);
+        });
+    } else {
+        copyCodeFallback(code, onCopied);
+    }
+}
+window.copyCode = copyCode;
+
+function copyCodeFallback(text, onSuccess) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+        document.execCommand('copy');
+        if (onSuccess) onSuccess();
+    } catch (e) {}
+    document.body.removeChild(ta);
+}
+
 function replacePlaceholderWithCard(email, messages) {
     const card = document.getElementById(`card-${sanitizeId(email)}`);
     if (!card) return;
@@ -383,6 +556,7 @@ function replacePlaceholderWithCard(email, messages) {
                     <th class="col-from" data-i18n="th.from">${t('th.from')}</th>
                     <th class="col-time" data-i18n="th.time">${t('th.time')}</th>
                     <th class="col-content" data-i18n="th.content">${t('th.content')}</th>
+                    <th class="col-code" data-i18n="th.code">${t('th.code')}</th>
                     <th class="col-action"></th>
                 </tr>
             </thead>
@@ -414,7 +588,7 @@ function replacePlaceholderWithError(email, error) {
 
 function renderMailRows(messages, startIdx, email) {
     if (!messages || messages.length === 0) {
-        return `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;" data-i18n="card.no.mail">${t('card.no.mail')}</td></tr>`;
+        return `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:20px;" data-i18n="card.no.mail">${t('card.no.mail')}</td></tr>`;
     }
 
     return messages
@@ -422,6 +596,14 @@ function renderMailRows(messages, startIdx, email) {
             const idx = startIdx + i + 1;
             const date = formatDate(msg.date);
             const msgId = msg.id;
+            const code = (msg.code && msg.code.trim()) ? msg.code.trim() : extractCodeFromText(msg.subject, msg.snippet);
+
+            const codeHtml = code ? `
+                <div class="code-cell-wrapper">
+                    <span class="code-value">${escHtml(code)}</span>
+                    <button class="btn-copy-code" onclick="copyCode(this, '${escAttr(code)}')" title="Copy code">${t('btn.copy')}</button>
+                </div>
+            ` : `<span class="code-empty">-</span>`;
 
             return `
             <tr>
@@ -435,6 +617,7 @@ function renderMailRows(messages, startIdx, email) {
                     <div class="mail-subject">${escHtml(msg.subject)}</div>
                     <div class="mail-snippet">${escHtml(msg.snippet || "")}</div>
                 </td>
+                <td class="col-code">${codeHtml}</td>
                 <td class="col-action">
                     <button class="btn-detail" data-i18n="btn.detail" onclick="showDetail('${escAttr(email)}', '${escAttr(msgId)}')">${t('btn.detail')}</button>
                 </td>
@@ -590,6 +773,7 @@ async function showDetail(email, messageId) {
             `;
             const htmlBody = data.html_body || `<pre>${escHtml(data.snippet || t('modal.no.content'))}</pre>`;
             modalIframe.srcdoc = htmlBody;
+            updateRowCodeIfFound(email, messageId, data.subject, data.html_body || data.snippet);
             _accountInFlight[`detail_${email}_${messageId}`] = false;
             return;
         }
@@ -621,7 +805,9 @@ async function showDetail(email, messageId) {
                         <div class="meta-row"><span class="meta-label">Date:</span><span class="meta-value">${formatDate(msg.receivedDateTime || "")}</span></div>
                         <div class="meta-row"><span class="meta-label">Subject:</span><span class="meta-value">${escHtml(msg.subject || "(no subject)")}</span></div>
                     `;
-                    modalIframe.srcdoc = bodyObj.content || `<pre>${escHtml(msg.bodyPreview || "")}</pre>`;
+                    const fullContent = bodyObj.content || `<pre>${escHtml(msg.bodyPreview || "")}</pre>`;
+                    modalIframe.srcdoc = fullContent;
+                    updateRowCodeIfFound(email, messageId, msg.subject, bodyObj.content || msg.bodyPreview);
                     accData.refresh_token = exchangeResult.refresh_token;
                     _accountInFlight[`detail_${email}_${messageId}`] = false;
                     return;
@@ -635,6 +821,28 @@ async function showDetail(email, messageId) {
     modalTitle.textContent = t('modal.error');
     modalIframe.srcdoc = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:red;">${t('modal.error')}</div>`;
     _accountInFlight[`detail_${email}_${messageId}`] = false;
+}
+
+function updateRowCodeIfFound(email, messageId, subject, fullBody) {
+    if (!fullBody && !subject) return;
+    const code = extractCodeFromText(subject, fullBody);
+    if (!code) return;
+    const tbody = document.getElementById(`tbody-${sanitizeId(email)}`);
+    if (!tbody) return;
+    const rows = tbody.querySelectorAll('tr');
+    rows.forEach(r => {
+        if (r.innerHTML.includes(messageId)) {
+            const codeCell = r.querySelector('.col-code');
+            if (codeCell && (codeCell.textContent.trim() === '-' || !codeCell.querySelector('.code-value'))) {
+                codeCell.innerHTML = `
+                    <div class="code-cell-wrapper">
+                        <span class="code-value">${escHtml(code)}</span>
+                        <button class="btn-copy-code" onclick="copyCode(this, '${escAttr(code)}')" title="Copy code">${t('btn.copy')}</button>
+                    </div>
+                `;
+            }
+        }
+    });
 }
 
 // ── Modal controls ─────────────────────────────────────────────────
@@ -703,11 +911,8 @@ function switchPage(page) {
     }
     document.getElementById("mail-page").style.display   = page === "mail"   ? "" : "none";
     document.getElementById("oauth2-page").style.display = page === "oauth2" ? "" : "none";
-    document.getElementById("verify-page").style.display = page === "verify" ? "" : "none";
     document.getElementById("nav-mail").classList.toggle("active",   page === "mail");
     document.getElementById("nav-oauth2").classList.toggle("active", page === "oauth2");
-    const navVerify = document.getElementById("nav-verify");
-    if (navVerify) navVerify.classList.toggle("active", page === "verify");
 }
 
 // ── Get OAuth2 ──────────────────────────────────────────────────
@@ -898,179 +1103,4 @@ async function exchangeTokenClientSideSingle(acc) {
     return { access_token: "", refresh_token: acc.refresh_token, scope: "" };
 }
 
-// ── Verify Page ──────────────────────────────────────────────────
-async function extractVerifyCode() {
-    const raw = document.getElementById("verify-input").value.trim();
-    if (!raw) {
-        showToast(t('alert.verify.empty'), "warning");
-        return;
-    }
-    
-    // Parse like parseAccounts
-    const lines = raw.split("\n");
-    let account = null;
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        const parts = trimmed.split("|");
-        if (parts.length < 4) continue;
-        account = {
-            email: parts[0].trim(),
-            password: parts[1].trim(),
-            refresh_token: parts[2].trim(),
-            client_id: parts[3].trim(),
-            tenant_id: (parts[4] || "").trim() || "consumers",
-        };
-        break; // Take only the first account
-    }
-    
-    if (!account) {
-        showToast(t('alert.no.data'), "warning");
-        return;
-    }
-    
-    const sender = document.getElementById("verify-sender").value.trim();
-    const limit = parseInt(document.getElementById("verify-limit").value) || 5;
-    
-    const container = document.getElementById("verify-results-container");
-    const resultsDiv = document.getElementById("verify-results");
-    
-    resultsDiv.style.display = "block";
-    container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-muted);"><div class="spinner-small" style="display:inline-block; margin-right:8px; vertical-align:middle;"></div>${t('verify.searching')}</div>`;
-    
-    try {
-        const payload = {
-            ...account,
-            sender_filter: sender,
-            limit: limit
-        };
-        
-        const resp = await fetch("/api/get-verification-code", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-        });
-        
-        const data = await resp.json();
-        if (data.error) {
-            throw new Error(data.error);
-        }
-        
-        if (!data.codes || data.codes.length === 0) {
-            container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-muted);">${t('verify.notfound')}</div>`;
-            return;
-        }
-        
-        container.innerHTML = data.codes.map((item) => `
-            <div class="verify-code-item">
-                <div class="verify-code-display">
-                    ${escHtml(item.code)}
-                    <button class="verify-code-copy" onclick="copyToClipboard('${escAttr(item.code)}')">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                    </button>
-                </div>
-                <div class="verify-code-meta">
-                    <div><strong>${t('verify.from')}:</strong> ${escHtml(item.sender)}</div>
-                    <div><strong>${t('verify.subject')}:</strong> ${escHtml(item.subject)}</div>
-                    <div><strong>${t('verify.time')}:</strong> ${formatDate(item.received_at || item.time || item.date)}</div>
-                    ${item.type ? `<div><strong>${t('verify.type')}:</strong> ${escHtml(item.type)}</div>` : ''}
-                </div>
-            </div>
-        `).join("");
-        
-    } catch (err) {
-        showToast(err.message, "error");
-        container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--error);">${escHtml(err.message)}</div>`;
-    }
-}
 
-async function extractAllCodes() {
-    const raw = document.getElementById("verify-input").value.trim();
-    if (!raw) {
-        showToast(t('alert.verify.empty'), "warning");
-        return;
-    }
-    
-    // Similar to parseAccounts
-    const lines = raw.split("\n");
-    let account = null;
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        const parts = trimmed.split("|");
-        if (parts.length < 4) continue;
-        account = {
-            email: parts[0].trim(),
-            password: parts[1].trim(),
-            refresh_token: parts[2].trim(),
-            client_id: parts[3].trim(),
-            tenant_id: (parts[4] || "").trim() || "consumers",
-        };
-        break; // Take only the first account
-    }
-    
-    if (!account) {
-        showToast(t('alert.no.data'), "warning");
-        return;
-    }
-    
-    const limit = parseInt(document.getElementById("verify-limit").value) || 5;
-    
-    const container = document.getElementById("verify-results-container");
-    const resultsDiv = document.getElementById("verify-results");
-    
-    resultsDiv.style.display = "block";
-    container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-muted);"><div class="spinner-small" style="display:inline-block; margin-right:8px; vertical-align:middle;"></div>${t('verify.searching')}</div>`;
-    
-    try {
-        const payload = {
-            ...account,
-            limit: limit
-        };
-        
-        const resp = await fetch("/api/latest-codes", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-        });
-        
-        const data = await resp.json();
-        if (data.error) {
-            throw new Error(data.error);
-        }
-        
-        if (!data.codes || data.codes.length === 0) {
-            container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-muted);">${t('verify.notfound')}</div>`;
-            return;
-        }
-        
-        container.innerHTML = data.codes.map((item) => `
-            <div class="verify-code-item">
-                <div class="verify-code-display">
-                    ${escHtml(item.code)}
-                    <button class="verify-code-copy" onclick="copyToClipboard('${escAttr(item.code)}')">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                    </button>
-                </div>
-                <div class="verify-code-meta">
-                    <div><strong>${t('verify.from')}:</strong> ${escHtml(item.sender)}</div>
-                    <div><strong>${t('verify.subject')}:</strong> ${escHtml(item.subject)}</div>
-                    <div><strong>${t('verify.time')}:</strong> ${formatDate(item.received_at || item.time || item.date)}</div>
-                    ${item.type ? `<div><strong>${t('verify.type')}:</strong> ${escHtml(item.type)}</div>` : ''}
-                </div>
-            </div>
-        `).join("");
-        
-    } catch (err) {
-        showToast(err.message, "error");
-        container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--error);">${escHtml(err.message)}</div>`;
-    }
-}
-
-function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(() => {
-        showToast(t('verify.copied') || 'Code copied!', "success");
-    }).catch(() => {
-        showToast("Copy failed", "error");
-    });
-}

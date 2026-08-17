@@ -216,22 +216,46 @@ def _extract_from_info(message: Dict[str, Any]) -> Dict[str, str]:
 
 def _format_message(message: Dict[str, Any]) -> Dict[str, str]:
     from_info = _extract_from_info(message)
+    subject = _pick(message, "subject", "Subject", default="(no subject)") or "(no subject)"
+    snippet = (_pick(message, "bodyPreview", "BodyPreview", default="") or "")[:200]
+    
+    code = ""
+    try:
+        import code_extractor
+        best = code_extractor.find_best_code(subject, snippet, from_info.get("address"))
+        if best and best.get("value"):
+            code = best.get("value", "")
+    except Exception:
+        pass
+
     return {
         "id": _pick(message, "id", "Id", default=""),
-        "subject": _pick(message, "subject", "Subject", default="(no subject)")
-        or "(no subject)",
+        "subject": subject,
         "from_name": from_info["name"],
         "from_address": from_info["address"],
         "date": _pick(message, "receivedDateTime", "ReceivedDateTime", default=""),
-        "snippet": (_pick(message, "bodyPreview", "BodyPreview", default="") or "")[:200],
+        "snippet": snippet,
+        "code": code,
     }
 
 
 def _format_message_detail(message: Dict[str, Any]) -> Dict[str, str]:
     formatted = _format_message(message)
     body = _pick(message, "body", "Body", default={}) or {}
-    formatted["html_body"] = _pick(body, "content", "Content", default="")
+    html_content = _pick(body, "content", "Content", default="")
+    formatted["html_body"] = html_content
     formatted["content_type"] = _pick(body, "contentType", "ContentType", default="html")
+    
+    # Nếu chưa có code từ snippet/subject, quét sâu trong html_body
+    if not formatted.get("code") and html_content:
+        try:
+            import code_extractor
+            best = code_extractor.find_best_code(formatted.get("subject", ""), html_content, formatted.get("from_address"))
+            if best and best.get("value"):
+                formatted["code"] = best.get("value", "")
+        except Exception:
+            pass
+
     return formatted
 
 
