@@ -703,8 +703,11 @@ function switchPage(page) {
     }
     document.getElementById("mail-page").style.display   = page === "mail"   ? "" : "none";
     document.getElementById("oauth2-page").style.display = page === "oauth2" ? "" : "none";
+    document.getElementById("verify-page").style.display = page === "verify" ? "" : "none";
     document.getElementById("nav-mail").classList.toggle("active",   page === "mail");
     document.getElementById("nav-oauth2").classList.toggle("active", page === "oauth2");
+    const navVerify = document.getElementById("nav-verify");
+    if (navVerify) navVerify.classList.toggle("active", page === "verify");
 }
 
 // ── Get OAuth2 ──────────────────────────────────────────────────
@@ -893,4 +896,181 @@ async function exchangeTokenClientSideSingle(acc) {
         console.error("exchangeTokenClientSideSingle error:", e);
     }
     return { access_token: "", refresh_token: acc.refresh_token, scope: "" };
+}
+
+// ── Verify Page ──────────────────────────────────────────────────
+async function extractVerifyCode() {
+    const raw = document.getElementById("verify-input").value.trim();
+    if (!raw) {
+        showToast(t('alert.verify.empty'), "warning");
+        return;
+    }
+    
+    // Parse like parseAccounts
+    const lines = raw.split("\n");
+    let account = null;
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const parts = trimmed.split("|");
+        if (parts.length < 4) continue;
+        account = {
+            email: parts[0].trim(),
+            password: parts[1].trim(),
+            refresh_token: parts[2].trim(),
+            client_id: parts[3].trim(),
+            tenant_id: (parts[4] || "").trim() || "consumers",
+        };
+        break; // Take only the first account
+    }
+    
+    if (!account) {
+        showToast(t('alert.no.data'), "warning");
+        return;
+    }
+    
+    const sender = document.getElementById("verify-sender").value.trim();
+    const limit = parseInt(document.getElementById("verify-limit").value) || 5;
+    
+    const container = document.getElementById("verify-results-container");
+    const resultsDiv = document.getElementById("verify-results");
+    
+    resultsDiv.style.display = "block";
+    container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-muted);"><div class="spinner-small" style="display:inline-block; margin-right:8px; vertical-align:middle;"></div>${t('verify.searching')}</div>`;
+    
+    try {
+        const payload = {
+            ...account,
+            sender_filter: sender,
+            limit: limit
+        };
+        
+        const resp = await fetch("/api/get-verification-code", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        
+        const data = await resp.json();
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        if (!data.codes || data.codes.length === 0) {
+            container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-muted);">${t('verify.notfound')}</div>`;
+            return;
+        }
+        
+        container.innerHTML = data.codes.map((item) => `
+            <div class="verify-code-item">
+                <div class="verify-code-display">
+                    ${escHtml(item.code)}
+                    <button class="verify-code-copy" onclick="copyToClipboard('${escAttr(item.code)}')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    </button>
+                </div>
+                <div class="verify-code-meta">
+                    <div><strong>${t('verify.from')}:</strong> ${escHtml(item.sender)}</div>
+                    <div><strong>${t('verify.subject')}:</strong> ${escHtml(item.subject)}</div>
+                    <div><strong>${t('verify.time')}:</strong> ${formatDate(item.received_at || item.time || item.date)}</div>
+                    ${item.type ? `<div><strong>${t('verify.type')}:</strong> ${escHtml(item.type)}</div>` : ''}
+                </div>
+            </div>
+        `).join("");
+        
+    } catch (err) {
+        showToast(err.message, "error");
+        container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--error);">${escHtml(err.message)}</div>`;
+    }
+}
+
+async function extractAllCodes() {
+    const raw = document.getElementById("verify-input").value.trim();
+    if (!raw) {
+        showToast(t('alert.verify.empty'), "warning");
+        return;
+    }
+    
+    // Similar to parseAccounts
+    const lines = raw.split("\n");
+    let account = null;
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const parts = trimmed.split("|");
+        if (parts.length < 4) continue;
+        account = {
+            email: parts[0].trim(),
+            password: parts[1].trim(),
+            refresh_token: parts[2].trim(),
+            client_id: parts[3].trim(),
+            tenant_id: (parts[4] || "").trim() || "consumers",
+        };
+        break; // Take only the first account
+    }
+    
+    if (!account) {
+        showToast(t('alert.no.data'), "warning");
+        return;
+    }
+    
+    const limit = parseInt(document.getElementById("verify-limit").value) || 5;
+    
+    const container = document.getElementById("verify-results-container");
+    const resultsDiv = document.getElementById("verify-results");
+    
+    resultsDiv.style.display = "block";
+    container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-muted);"><div class="spinner-small" style="display:inline-block; margin-right:8px; vertical-align:middle;"></div>${t('verify.searching')}</div>`;
+    
+    try {
+        const payload = {
+            ...account,
+            limit: limit
+        };
+        
+        const resp = await fetch("/api/latest-codes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        
+        const data = await resp.json();
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        if (!data.codes || data.codes.length === 0) {
+            container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-muted);">${t('verify.notfound')}</div>`;
+            return;
+        }
+        
+        container.innerHTML = data.codes.map((item) => `
+            <div class="verify-code-item">
+                <div class="verify-code-display">
+                    ${escHtml(item.code)}
+                    <button class="verify-code-copy" onclick="copyToClipboard('${escAttr(item.code)}')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    </button>
+                </div>
+                <div class="verify-code-meta">
+                    <div><strong>${t('verify.from')}:</strong> ${escHtml(item.sender)}</div>
+                    <div><strong>${t('verify.subject')}:</strong> ${escHtml(item.subject)}</div>
+                    <div><strong>${t('verify.time')}:</strong> ${formatDate(item.received_at || item.time || item.date)}</div>
+                    ${item.type ? `<div><strong>${t('verify.type')}:</strong> ${escHtml(item.type)}</div>` : ''}
+                </div>
+            </div>
+        `).join("");
+        
+    } catch (err) {
+        showToast(err.message, "error");
+        container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--error);">${escHtml(err.message)}</div>`;
+    }
+}
+
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        showToast(t('verify.copied') || 'Code copied!', "success");
+    }).catch(() => {
+        showToast("Copy failed", "error");
+    });
 }

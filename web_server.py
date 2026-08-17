@@ -669,6 +669,130 @@ def api_get_token():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# ── API: Get Verification Code ──────────────────────────────────────
+@app.route("/api/get-verification-code", methods=["POST"])
+def api_get_verification_code():
+    """Tim va tra ve ma xac nhan (OTP, link) tu cac email moi nhat."""
+    import code_extractor
+    
+    body = request.get_json(silent=True) or {}
+    email = body.get("email", "").strip()
+    refresh_token = body.get("refresh_token", "").strip()
+    client_id = body.get("client_id", "").strip()
+    tenant_id = body.get("tenant_id", "consumers").strip() or "consumers"
+    sender_filter = body.get("sender_filter", "").strip()
+    code_pattern = body.get("code_pattern", "")
+    try:
+        limit = int(body.get("limit", 5))
+    except (ValueError, TypeError):
+        limit = 5
+
+    if not refresh_token or not client_id:
+        return jsonify({"error": "Thieu refresh_token hoac client_id"}), 400
+
+    ok_token, token_or_err = exchange_refresh_token(refresh_token, client_id, tenant_id)
+    if not ok_token:
+        return jsonify({"error": token_or_err}), 401
+    
+    ok_msgs, msgs_or_err = get_messages(token_or_err, limit=limit, email_addr=email)
+    if not ok_msgs:
+        return jsonify({"error": msgs_or_err}), 500
+
+    for msg in msgs_or_err:
+        sender_email = msg.get("from", "")
+        if sender_filter and sender_filter.lower() not in sender_email.lower():
+            continue
+            
+        msg_id = msg.get("id")
+        subject = msg.get("subject", "")
+        
+        ok_detail, detail_or_err = get_message_detail(token_or_err, msg_id, email_addr=email)
+        if not ok_detail:
+            continue
+            
+        html_body = detail_or_err.get("body_html", "") or detail_or_err.get("body_text", "")
+        
+        extracted_codes = code_extractor.extract_codes(subject, html_body, custom_pattern=code_pattern)
+        if extracted_codes:
+            best_match = None
+            if code_pattern:
+                custom_matches = [c for c in extracted_codes if c["type"] == "custom"]
+                if custom_matches:
+                    best_match = custom_matches[0]
+            
+            if not best_match:
+                best_match = code_extractor.find_best_code(subject, html_body, sender=sender_email)
+            
+            if best_match:
+                return jsonify({
+                    "found": True,
+                    "code": best_match["value"],
+                    "type": best_match["type"],
+                    "subject": subject,
+                    "from": sender_email,
+                    "received_at": msg.get("receivedDateTime", ""),
+                    "all_codes": extracted_codes
+                })
+
+    return jsonify({"found": False, "error": "Khong tim thay ma xac nhan", "all_codes": []})
+
+# ── API: Latest Codes ───────────────────────────────────────────────
+@app.route("/api/latest-codes", methods=["POST"])
+def api_latest_codes():
+    """Lay tat ca ma xac nhan tu cac email moi nhat."""
+    import code_extractor
+    
+    body = request.get_json(silent=True) or {}
+    email = body.get("email", "").strip()
+    refresh_token = body.get("refresh_token", "").strip()
+    client_id = body.get("client_id", "").strip()
+    tenant_id = body.get("tenant_id", "consumers").strip() or "consumers"
+    sender_filter = body.get("sender_filter", "").strip()
+    code_pattern = body.get("code_pattern", "")
+    try:
+        limit = int(body.get("limit", 5))
+    except (ValueError, TypeError):
+        limit = 5
+
+    if not refresh_token or not client_id:
+        return jsonify({"error": "Thieu refresh_token hoac client_id"}), 400
+
+    ok_token, token_or_err = exchange_refresh_token(refresh_token, client_id, tenant_id)
+    if not ok_token:
+        return jsonify({"error": token_or_err}), 401
+    
+    ok_msgs, msgs_or_err = get_messages(token_or_err, limit=limit, email_addr=email)
+    if not ok_msgs:
+        return jsonify({"error": msgs_or_err}), 500
+
+    results = []
+
+    for msg in msgs_or_err:
+        sender_email = msg.get("from", "")
+        if sender_filter and sender_filter.lower() not in sender_email.lower():
+            continue
+            
+        msg_id = msg.get("id")
+        subject = msg.get("subject", "")
+        
+        ok_detail, detail_or_err = get_message_detail(token_or_err, msg_id, email_addr=email)
+        if not ok_detail:
+            continue
+            
+        html_body = detail_or_err.get("body_html", "") or detail_or_err.get("body_text", "")
+        
+        extracted_codes = code_extractor.extract_codes(subject, html_body, custom_pattern=code_pattern)
+        for code_obj in extracted_codes:
+            results.append({
+                "code": code_obj["value"],
+                "type": code_obj["type"],
+                "subject": subject,
+                "from": sender_email,
+                "received_at": msg.get("receivedDateTime", "")
+            })
+
+    return jsonify({"codes": results})
+
 
 # ── Main ────────────────────────────────────────────────────────────
 if not os.environ.get("VERCEL"):
