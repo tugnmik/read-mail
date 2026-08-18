@@ -6,18 +6,21 @@ COMMON_WORD_EXCLUSIONS = {
     "address", "account", "ignore", "please", "verify", "click", "device",
     "security", "signin", "signup", "confirm", "action", "access", "update",
     "service", "support", "online", "system", "request", "message", "member",
-    "duoi", "sau", "day", "xac", "nhan", "thuc", "khoan", "tai", "password"
+    "duoi", "sau", "day", "xac", "nhan", "thuc", "khoan", "tai", "password",
+    "one-time", "passcode", "sign-in", "two-factor", "autodesk", "welcome",
+    "education", "complete", "anyone", "forward", "share", "number"
 }
 
 # Regex nhận diện các định dạng mã xác nhận theo thứ tự ưu tiên:
 # 1. Mã có tiền tố: G-123456, FB-123456, MS-123456, VK-123456
 # 2. Số có dấu gạch ngang: 883-574, 123-456, 1234-5678, 12-34-56
 # 3. Số có khoảng trắng: 883 574, 123 456
-# 4. Chữ + số có dấu gạch ngang: ABC-DEF, A1B-2C3, ABC-123
-# 5. Chữ và số hỗn hợp: 8F2A1K, A1B2C3, RD4K9, 7K92X
-# 6. Chuỗi chữ in hoa (như Steam Guard): XKJHD, ABCDE (4 đến 8 ký tự)
-# 7. Chuỗi số thuần túy: 095439, 847291, 1234 (4 đến 8 chữ số)
-CODE_PATTERN = r'\b[A-Za-z]{1,4}-\d{4,8}\b|\b\d{2,4}-\d{2,4}(?:-\d{2,4})?\b|\b\d{3,4}\s+\d{3,4}\b|\b[A-Za-z0-9]{2,4}-[A-Za-z0-9]{2,4}\b|\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{4,10}\b|\b[A-Z0-9]{4,8}\b|\b[0-9]{4,8}\b'
+# 4. Chữ + số có dấu gạch ngang: ABC-123, A1B-2C3, 883-574
+# 5. Cụm chữ in hoa có gạch ngang: ABC-DEF
+# 6. Chữ và số hỗn hợp: 8F2A1K, A1B2C3, RD4K9, 7K92X
+# 7. Chuỗi chữ in hoa (như Steam Guard): XKJHD, ABCDE (4 đến 8 ký tự)
+# 8. Chuỗi số thuần túy: 095439, 847291, 1234 (4 đến 8 chữ số)
+CODE_PATTERN = r'\b[A-Za-z]{1,4}-\d{4,8}\b|\b\d{2,4}-\d{2,4}(?:-\d{2,4})?\b|\b\d{3,4}\s+\d{3,4}\b|\b[A-Za-z0-9]{2,4}-\d{2,6}\b|\b\d{2,6}-[A-Za-z0-9]{2,4}\b|\b[A-Z]{3,4}-[A-Z]{3,4}\b|\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{4,10}\b|\b[A-Z0-9]{4,8}\b|\b[0-9]{4,8}\b'
 
 # Các mẫu tiêu đề/nội dung loại trừ (không phải email chứa mã xác nhận)
 NEGATIVE_PATTERNS = [
@@ -72,12 +75,16 @@ def is_valid_code_value(code: str) -> bool:
     # Loại trừ năm 2000-2035
     if clean.isdigit() and len(clean) == 4 and 2000 <= int(clean) <= 2035:
         return False
-    # Hợp lệ nếu: có số, HOẶC có dấu gạch nối, HOẶC là chuỗi chữ in hoa (như Steam Guard XKJHD)
-    has_digit = any(c.isdigit() for c in clean)
-    has_hyphen = '-' in clean
-    is_uppercase_code = raw.isupper() and 4 <= len(raw) <= 8
     
-    if not (has_digit or has_hyphen or is_uppercase_code):
+    # Hợp lệ nếu:
+    # 1. Có chứa ít nhất 1 chữ số
+    has_digit = any(c.isdigit() for c in clean)
+    # 2. Hoặc chuỗi có gạch nối VÀ có chứa số (như 883-574, ABC-123)
+    has_hyphen_with_digit = '-' in clean and has_digit
+    # 3. Hoặc là chuỗi in hoa hoàn toàn (như Steam Guard RD4K9 hoặc ABC-DEF) và không chứa từ cấm
+    is_uppercase_code = raw.isupper() and 4 <= len(raw) <= 12 and not any(part in COMMON_WORD_EXCLUSIONS for part in clean.split('-'))
+    
+    if not (has_digit or has_hyphen_with_digit or is_uppercase_code):
         return False
     return True
 
@@ -156,8 +163,7 @@ def find_best_code(subject: str, body: str, sender: str = None) -> dict:
 
     # 2. Khớp theo mẫu ngữ cảnh có độ tin cậy cao
     for pat in CONTEXTUAL_PATTERNS:
-        m = re.search(pat, full_text, re.IGNORECASE | re.MULTILINE)
-        if m:
+        for m in re.finditer(pat, full_text, re.IGNORECASE | re.MULTILINE):
             code = m.group(1).strip()
             if is_valid_code_value(code):
                 final_code = clean_code_value(code)
